@@ -6,8 +6,11 @@ from typing import Any
 from googleapiclient.errors import HttpError
 
 from api.youtube_client import YouTubeClient, YouTubeAPIClientError
+from utils.retry import retry
 
 logger = logging.getLogger(__name__)
+
+RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
 
 
 class VideoServiceError(Exception):
@@ -20,31 +23,43 @@ class UploadsPlaylistNotFoundError(VideoServiceError):
     pass
 
 
+def _is_retryable(exc: HttpError) -> bool:
+    return exc.resp.status in RETRYABLE_STATUSES
+
+
+def _handle_http_error(exc: HttpError, context: str = "") -> None:
+    status = exc.resp.status
+    reason = getattr(exc, "reason", str(exc))
+    error_body = str(exc)
+    prefix = f"{context}: " if context else ""
+
+    logger.error("%sYouTube API HTTP %d error: %s", prefix, status, reason)
+
+    if _is_retryable(exc):
+        raise exc
+
+    if status == 403:
+        if "quotaExceeded" in error_body or "quota" in error_body.lower():
+            raise VideoServiceError(f"{prefix}API quota exceeded. Try again later.") from exc
+        raise VideoServiceError(f"{prefix}API request forbidden. Check API key. Reason: {reason}") from exc
+    if status == 400:
+        raise VideoServiceError(f"{prefix}Bad request. Reason: {reason}") from exc
+    if status == 404:
+        raise VideoServiceError(f"{prefix}Resource not found: {reason}") from exc
+    raise VideoServiceError(f"{prefix}HTTP {status}: {reason}") from exc
+
+
 class VideoService:
     """Handles YouTube Data API communication for video and playlist lookups.
 
-    Uses the existing YouTubeClient from Phase 1.
+    Uses retry with exponential backoff for transient failures (429, 5xx).
     """
 
     def __init__(self, client: YouTubeClient | None = None) -> None:
         self._client = client or YouTubeClient()
 
+    @retry(max_retries=3, base_delay=1.0, exceptions=(HttpError,))
     def get_uploads_playlist_id(self, channel_id: str) -> str:
-        """Retrieve the uploads playlist ID for a given channel.
-
-        Calls ``channels.list(part="contentDetails")`` and extracts
-        ``relatedPlaylists.uploads``.
-
-        Args:
-            channel_id: The YouTube channel ID (``UC...``).
-
-        Returns:
-            The uploads playlist ID (``UU...``).
-
-        Raises:
-            VideoServiceError: If the API request fails.
-            UploadsPlaylistNotFoundError: If the playlist ID is missing.
-        """
         service = self._client.get_service()
         logger.info("Fetching uploads playlist ID for channel %s", channel_id)
 
@@ -55,28 +70,10 @@ class VideoService:
                 .execute()
             )
         except HttpError as exc:
-            status = exc.resp.status
-            reason = getattr(exc, "reason", str(exc))
-            logger.error("YouTube API HTTP %d error: %s", status, reason)
-
-            if status == 403:
-                error_body = str(exc)
-                if "quotaExceeded" in error_body or "quota" in error_body.lower():
-                    raise VideoServiceError(
-                        "API quota exceeded. Try again later."
-                    ) from exc
-                raise VideoServiceError(
-                    f"API request forbidden. Check API key. Reason: {reason}"
-                ) from exc
-            if status == 400:
-                raise VideoServiceError(
-                    f"Bad request. Reason: {reason}"
-                ) from exc
-            if status == 404:
-                raise VideoServiceError(
-                    f"Channel not found: {channel_id}"
-                ) from exc
-            raise VideoServiceError(f"HTTP {status}: {reason}") from exc
+            if _is_retryable(exc):
+                raise  # let @retry handle it
+            _handle_http_error(exc, "get_uploads_playlist_id")
+            raise
         except YouTubeAPIClientError as exc:
             raise VideoServiceError(str(exc)) from exc
         except Exception as exc:
@@ -101,26 +98,12 @@ class VideoService:
         logger.info("Uploads playlist ID: %s", uploads_id)
         return uploads_id
 
+    @retry(max_retries=3, base_delay=1.0, exceptions=(HttpError,))
     def get_playlist_items(
         self,
         playlist_id: str,
         page_token: str | None = None,
     ) -> dict[str, Any]:
-        """Fetch a single page of playlist items from the YouTube API.
-
-        Args:
-            playlist_id: The playlist ID to fetch items from.
-            page_token: Optional page token for pagination.
-
-        Returns:
-            Dict with keys:
-            - ``video_ids``: List of video ID strings from this page.
-            - ``next_page_token``: Token for the next page, or ``None``.
-            - ``page_item_count``: Number of items on this page.
-
-        Raises:
-            VideoServiceError: If the API request fails.
-        """
         service = self._client.get_service()
         page_label = f"page_token={page_token}" if page_token else "first page"
         logger.info("Requesting playlist items: playlist=%s, %s", playlist_id, page_label)
@@ -140,24 +123,10 @@ class VideoService:
                 .execute()
             )
         except HttpError as exc:
-            status = exc.resp.status
-            reason = getattr(exc, "reason", str(exc))
-            logger.error("YouTube API HTTP %d error: %s", status, reason)
-
-            if status == 403:
-                error_body = str(exc)
-                if "quotaExceeded" in error_body or "quota" in error_body.lower():
-                    raise VideoServiceError(
-                        "API quota exceeded. Try again later."
-                    ) from exc
-                raise VideoServiceError(
-                    f"API request forbidden. Check API key. Reason: {reason}"
-                ) from exc
-            if status == 404:
-                raise VideoServiceError(
-                    f"Playlist not found: {playlist_id}"
-                ) from exc
-            raise VideoServiceError(f"HTTP {status}: {reason}") from exc
+            if _is_retryable(exc):
+                raise
+            _handle_http_error(exc, "get_playlist_items")
+            raise
         except YouTubeAPIClientError as exc:
             raise VideoServiceError(str(exc)) from exc
         except Exception as exc:
@@ -189,21 +158,8 @@ class VideoService:
             "page_item_count": len(video_ids),
         }
 
+    @retry(max_retries=3, base_delay=1.0, exceptions=(HttpError,))
     def get_videos_batch(self, video_ids: list[str]) -> list[dict[str, Any]]:
-        """Fetch metadata for a batch of up to 50 videos.
-
-        Calls ``videos.list`` with ``part="snippet,contentDetails,statistics"``.
-
-        Args:
-            video_ids: List of YouTube video IDs (max 50).
-
-        Returns:
-            Raw API response items for videos that were found.
-            Deleted/private/invalid IDs are silently omitted by the API.
-
-        Raises:
-            VideoServiceError: If the API request fails.
-        """
         if not video_ids:
             return []
 
@@ -225,24 +181,10 @@ class VideoService:
                 .execute()
             )
         except HttpError as exc:
-            status = exc.resp.status
-            reason = getattr(exc, "reason", str(exc))
-            logger.error("YouTube API HTTP %d error: %s", status, reason)
-
-            if status == 403:
-                error_body = str(exc)
-                if "quotaExceeded" in error_body or "quota" in error_body.lower():
-                    raise VideoServiceError(
-                        "API quota exceeded. Try again later."
-                    ) from exc
-                raise VideoServiceError(
-                    f"API request forbidden. Check API key. Reason: {reason}"
-                ) from exc
-            if status == 400:
-                raise VideoServiceError(
-                    f"Bad request. Reason: {reason}"
-                ) from exc
-            raise VideoServiceError(f"HTTP {status}: {reason}") from exc
+            if _is_retryable(exc):
+                raise
+            _handle_http_error(exc, "get_videos_batch")
+            raise
         except YouTubeAPIClientError as exc:
             raise VideoServiceError(str(exc)) from exc
         except Exception as exc:

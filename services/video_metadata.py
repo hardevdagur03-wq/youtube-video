@@ -1,8 +1,12 @@
-"""Business logic for fetching metadata for a list of video IDs."""
+"""Business logic for fetching metadata for a list of video IDs.
+
+Supports streaming mode: yields records as they arrive from the API,
+enabling incremental CSV writing for large datasets with low memory.
+"""
 
 import logging
 from collections import OrderedDict
-from typing import Any
+from typing import Any, Iterator
 
 from api.video_service import VideoService, VideoServiceError
 
@@ -17,15 +21,6 @@ class VideoMetadataError(Exception):
 
 
 def _parse_video_item(item: dict[str, Any]) -> dict[str, Any]:
-    """Parse a raw API item into the standardised metadata record.
-
-    Args:
-        item: A single item from the ``videos.list`` API response.
-
-    Returns:
-        Dict with keys: ``video_id``, ``title``, ``upload_date``,
-        ``views``, ``likes``, ``duration``.
-    """
     snippet = item.get("snippet", {})
     statistics = item.get("statistics", {})
     content_details = item.get("contentDetails", {})
@@ -44,7 +39,6 @@ def _parse_video_item(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _deduplicate_preserve_order(ids: list[str]) -> list[str]:
-    """Remove duplicate IDs while preserving order."""
     seen: set[str] = set()
     result: list[str] = []
     for vid in ids:
@@ -54,33 +48,87 @@ def _deduplicate_preserve_order(ids: list[str]) -> list[str]:
     return result
 
 
+def metadata_stream(
+    video_ids: list[str],
+    video_service: VideoService | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Stream metadata records from the API one batch at a time.
+
+    Yields parsed records as each batch arrives.  A single failed batch
+    is logged but does NOT terminate the stream — the error is collected
+    and reported at the end.
+
+    Args:
+        video_ids: List of YouTube video IDs.
+        video_service: Optional injected VideoService.
+
+    Yields:
+        Dict per video: ``video_id``, ``title``, ``upload_date``,
+        ``views``, ``likes``, ``duration``.
+    """
+    if not video_ids:
+        return
+
+    service = video_service or VideoService()
+    original_count = len(video_ids)
+    deduped = _deduplicate_preserve_order(video_ids)
+    dup_count = original_count - len(deduped)
+    if dup_count:
+        logger.warning("Removed %d duplicate ID(s)", dup_count)
+
+    batches = [deduped[i : i + BATCH_SIZE] for i in range(0, len(deduped), BATCH_SIZE)]
+    logger.info("Metadata stream: %d video(s) in %d batch(es)", len(deduped), len(batches))
+
+    batch_errors = 0
+    for batch_num, batch in enumerate(batches, start=1):
+        try:
+            items = service.get_videos_batch(batch)
+        except VideoServiceError as exc:
+            logger.error("Batch %d/%d failed: %s", batch_num, len(batches), exc)
+            batch_errors += 1
+            continue
+
+        for item in items:
+            yield _parse_video_item(item)
+
+        logger.info(
+            "Batch %d/%d: %d records streamed",
+            batch_num,
+            len(batches),
+            len(items),
+        )
+
+    if batch_errors:
+        logger.warning(
+            "Metadata stream completed with %d failed batch(es) out of %d",
+            batch_errors,
+            len(batches),
+        )
+
+
 class VideoMetadataService:
     """Orchestrates metadata retrieval for a collection of video IDs.
 
-    1. Validates and deduplicates the input list.
-    2. Batches IDs into chunks of 50.
-    3. Fetches each batch via the API.
-    4. Parses responses into standardised records.
-    5. Returns a summary with the collected data.
+    Supports both batch (list-based) and streaming (iterator-based) retrieval.
+    The streaming variant is memory-efficient for large channels.
     """
 
     def __init__(self, video_service: VideoService | None = None) -> None:
         self._video_service = video_service or VideoService()
 
     def fetch_metadata(self, video_ids: list[str]) -> dict[str, Any]:
-        """Fetch metadata for all provided video IDs.
+        """Fetch metadata for all provided video IDs (batch mode, in-memory).
+
+        For large datasets, prefer ``metadata_stream()`` which yields records
+        as they arrive and uses constant memory.
 
         Args:
             video_ids: List of YouTube video IDs.
 
         Returns:
-            Dictionary with keys:
-            - ``videos``: List of parsed metadata records, preserving input order.
-            - ``total_input``: Number of IDs provided (after dedup).
-            - ``total_retrieved``: Number of records successfully returned by API.
-            - ``total_requests``: Number of API requests made.
-            - ``deduplicated``: Number of duplicates removed.
-            - ``success``: ``True`` if all API requests completed.
+            Dictionary with keys: ``videos``, ``total_input``,
+            ``total_retrieved``, ``total_requests``, ``deduplicated``,
+            ``success``.
         """
         if not video_ids:
             logger.info("No video IDs provided; returning empty result.")
@@ -116,12 +164,7 @@ class VideoMetadataService:
             try:
                 items = self._video_service.get_videos_batch(batch)
             except VideoServiceError as exc:
-                logger.error(
-                    "Batch %d/%d failed: %s",
-                    batch_num,
-                    len(batches),
-                    exc,
-                )
+                logger.error("Batch %d/%d failed: %s", batch_num, len(batches), exc)
                 raise VideoMetadataError(str(exc)) from exc
 
             total_requests += 1
