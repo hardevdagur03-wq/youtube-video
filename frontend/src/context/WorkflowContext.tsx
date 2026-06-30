@@ -1,5 +1,5 @@
 import { createContext, useContext, useReducer, useEffect, type ReactNode } from 'react';
-import type { WorkflowState, WorkflowStep, VideoMetadataResponse, VideoMetadata, TranscriptResult } from '../types';
+import type { WorkflowState, WorkflowStep, VideoMetadataResponse, VideoMetadata, TranscriptResult, ProcessingResult, ContentAnalysisResult } from '../types';
 
 const STORAGE_KEY = 'yt_blog_workflow';
 
@@ -10,6 +10,10 @@ const initialState: WorkflowState = {
   metadata: null,
   metadataResponse: null,
   transcript: null,
+  processedTranscript: null,
+  processingStatus: 'idle',
+  analysis: null,
+  analysisStatus: 'idle',
   stepStatus: {
     url: 'pending',
     metadata: 'pending',
@@ -27,6 +31,10 @@ type Action =
   | { type: 'SET_VIDEO'; payload: { videoId: string; normalizedUrl: string } }
   | { type: 'SET_METADATA'; payload: VideoMetadataResponse }
   | { type: 'SET_TRANSCRIPT'; payload: TranscriptResult }
+  | { type: 'SET_PROCESSED_TRANSCRIPT'; payload: { result: ProcessingResult; status: WorkflowState['processingStatus'] } }
+  | { type: 'SET_PROCESSING_STATUS'; payload: WorkflowState['processingStatus'] }
+  | { type: 'SET_ANALYSIS'; payload: { result: ContentAnalysisResult; status: WorkflowState['analysisStatus'] } }
+  | { type: 'SET_ANALYSIS_STATUS'; payload: WorkflowState['analysisStatus'] }
   | { type: 'SET_STEP_STATUS'; payload: { step: WorkflowStep; status: WorkflowState['stepStatus'][WorkflowStep] } }
   | { type: 'SET_ERROR'; payload: string | null }
   | { type: 'RESTORE'; payload: WorkflowState }
@@ -59,6 +67,27 @@ function reducer(state: WorkflowState, action: Action): WorkflowState {
         transcript: action.payload,
         stepStatus: { ...state.stepStatus, transcript: action.payload.success ? 'ok' : 'error' },
       };
+    case 'SET_PROCESSED_TRANSCRIPT':
+      return {
+        ...state,
+        processedTranscript: action.payload.result,
+        processingStatus: action.payload.status,
+        stepStatus: {
+          ...state.stepStatus,
+          transcript: action.payload.status === 'ok' ? 'ok' : state.stepStatus.transcript,
+        },
+      };
+    case 'SET_PROCESSING_STATUS':
+      return { ...state, processingStatus: action.payload };
+    case 'SET_ANALYSIS':
+      return {
+        ...state,
+        analysis: action.payload.result,
+        analysisStatus: action.payload.status,
+        stepStatus: { ...state.stepStatus, analysis: action.payload.status === 'ok' ? 'ok' : state.stepStatus.analysis },
+      };
+    case 'SET_ANALYSIS_STATUS':
+      return { ...state, analysisStatus: action.payload };
     case 'SET_STEP_STATUS':
       return {
         ...state,

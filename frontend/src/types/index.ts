@@ -162,6 +162,176 @@ export const WORKFLOW_STEPS: { key: WorkflowStep; label: string; number: number 
   { key: 'export', label: 'Export', number: 7 },
 ];
 
+// Phase 5 — Processing types
+export interface ProcessingStep {
+  name: string;
+  status: 'pending' | 'running' | 'ok' | 'error' | 'skipped';
+  detail: string;
+  duration_ms: number | null;
+}
+
+export interface LanguageDistribution {
+  primary: string;
+  secondary: string | null;
+  primary_confidence: number;
+  secondary_confidence: number | null;
+  mixed_ratio: number | null;
+}
+
+export interface ProcessingStatistics {
+  word_count: number;
+  character_count: number;
+  paragraph_count: number;
+  sentence_count: number;
+  estimated_read_time: string;
+  avg_sentence_length_words: number;
+  avg_paragraph_length_words: number;
+  longest_sentence_words: number;
+  filler_word_count: number;
+}
+
+export interface ProcessingFlags {
+  timestamps_removed: boolean;
+  captions_merged: boolean;
+  punctuation_restored: boolean;
+  capitalization_fixed: boolean;
+  duplicates_removed: boolean;
+  language_detected: boolean;
+  fillers_removed: boolean;
+  quality_passed: boolean;
+}
+
+export interface ProcessedTimestamp {
+  original_start: number;
+  original_end: number;
+  original_text: string;
+  cleaned_text: string;
+}
+
+export interface ProcessingResult {
+  success: boolean;
+  video_id: string;
+  language: LanguageDistribution | null;
+  statistics: ProcessingStatistics;
+  clean_transcript: string;
+  paragraphs: string[];
+  sentences: string[];
+  processing_steps: ProcessingStep[];
+  timestamps: ProcessedTimestamp[];
+  flags: ProcessingFlags;
+  processing_time_ms: number;
+  error: string | null;
+}
+
+// Phase 6 — AI Content Analysis types
+
+export type SearchIntent =
+  | 'informational' | 'educational' | 'commercial' | 'transactional'
+  | 'navigational' | 'comparative' | 'review' | 'tutorial'
+  | 'opinion' | 'case_study' | 'research';
+
+export type ContentCategory =
+  | 'education' | 'technology' | 'finance' | 'healthcare' | 'politic' | 'career'
+  | 'programming' | 'ai' | 'machine_learning' | 'business' | 'marketing'
+  | 'lifestyle' | 'science' | 'entertainment' | 'sports' | 'news';
+
+export interface AnalysisSummary {
+  short: string;
+  executive: string;
+  detailed: string;
+  bullet_points: string[];
+  key_insights: string[];
+}
+
+export interface KeywordSet {
+  primary: string;
+  secondary: string[];
+  long_tail: string[];
+  semantic: string[];
+  lsi: string[];
+  related_topics: string[];
+  brand_names: string[];
+  products: string[];
+  technologies: string[];
+  frameworks: string[];
+}
+
+export interface EntitySet {
+  people: string[];
+  companies: string[];
+  organizations: string[];
+  universities: string[];
+  countries: string[];
+  cities: string[];
+  technologies: string[];
+  programming_languages: string[];
+  frameworks: string[];
+  books: string[];
+  courses: string[];
+  tools: string[];
+  products: string[];
+}
+
+export interface ContentOutline {
+  sections: string[];
+  introduction: string;
+  main_body: string[];
+  conclusion: string;
+}
+
+export interface QualityScores {
+  topic_coverage: number;
+  depth_score: number;
+  readability: number;
+  technical_complexity: number;
+  educational_value: number;
+  seo_potential: number;
+  evergreen_score: number;
+  engagement_potential: number;
+  confidence: number;
+}
+
+export interface ContentAnalysisResult {
+  success: boolean;
+  video_id: string;
+  primary_topic: string;
+  secondary_topics: string[];
+  category: ContentCategory;
+  subcategory: string;
+  content_type: string;
+  search_intent: SearchIntent;
+  intent_confidence: number;
+  target_audience: string;
+  experience_level: string;
+  industry: string;
+  difficulty: string;
+  content_purpose: string;
+  problem_statement: string;
+  main_solution: string;
+  key_takeaways: string[];
+  pain_points: string[];
+  opportunities: string[];
+  action_items: string[];
+  call_to_actions: string[];
+  learning_objectives: string[];
+  business_value: string;
+  educational_value: string;
+  summary: AnalysisSummary;
+  keywords: KeywordSet;
+  entities: EntitySet;
+  outline: ContentOutline;
+  quality: QualityScores;
+  analysis_time_ms: number;
+  llm_provider: string;
+  llm_model: string;
+  prompt_version: string;
+  total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_estimate: number;
+  error: string | null;
+}
+
 export interface WorkflowState {
   currentStep: WorkflowStep;
   videoId: string | null;
@@ -169,6 +339,10 @@ export interface WorkflowState {
   metadata: VideoMetadata | null;
   metadataResponse: VideoMetadataResponse | null;
   transcript: TranscriptResult | null;
+  processedTranscript: ProcessingResult | null;
+  processingStatus: 'idle' | 'processing' | 'ok' | 'error';
+  analysis: ContentAnalysisResult | null;
+  analysisStatus: 'idle' | 'analyzing' | 'ok' | 'error';
   stepStatus: Record<WorkflowStep, 'pending' | 'running' | 'ok' | 'error' | 'skipped'>;
   error: string | null;
 }

@@ -309,6 +309,11 @@ async def spa_transcript() -> FileResponse:
     return _spa_index()
 
 
+@app.get("/analysis")
+async def spa_analysis() -> FileResponse:
+    return _spa_index()
+
+
 # ---------------------------------------------------------------------------
 # Routes — API / URL Validation
 # ---------------------------------------------------------------------------
@@ -413,6 +418,223 @@ async def api_transcript_status(video_id: str) -> dict:
     """
     service = _get_transcript_service()
     return service.get_transcript_status(video_id)
+
+
+# ---------------------------------------------------------------------------
+# Routes — API / Transcript Processing (Phase 5)
+# ---------------------------------------------------------------------------
+
+
+_transcript_processor = None
+
+
+def _get_transcript_processor():
+    global _transcript_processor
+    if _transcript_processor is None:
+        from services.transcript_processor import TranscriptProcessor
+        _transcript_processor = TranscriptProcessor()
+    return _transcript_processor
+
+
+@app.post("/api/transcript/{video_id}/process")
+async def api_process_transcript(
+    video_id: str,
+    remove_fillers: bool = False,
+) -> dict:
+    """Process a raw transcript into clean, AI-ready content.
+
+    Fetches the transcript via GET /api/transcript/{video_id}, then runs
+    the multi-stage processing pipeline.
+
+    Query parameters:
+        remove_fillers: If true, remove filler words.
+
+    Returns:
+        ``ProcessingResult``-compatible dict.
+    """
+    import json
+    from fastapi import HTTPException
+
+    transcript_service = _get_transcript_service()
+    transcript = transcript_service.get_transcript(video_id)
+
+    if not transcript.success:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "success": False,
+                "error": transcript.error or "No transcript available.",
+            },
+        )
+
+    processor = _get_transcript_processor()
+    result = processor.process(
+        segments=transcript.segments,
+        video_id=video_id,
+        remove_fillers=remove_fillers,
+    )
+    return json.loads(result.model_dump_json())
+
+
+@app.post("/api/process-transcript")
+async def api_process_transcript_direct(
+    request: Request,
+) -> dict:
+    """Process transcript segments passed in the request body.
+
+    JSON body::
+
+        {
+            "segments": [{"text": "...", "start": 0.0, "duration": 5.0}, ...],
+            "video_id": "dQw4w9WgXcQ",
+            "remove_fillers": false
+        }
+    """
+    import json
+    from fastapi import HTTPException
+
+    body = await request.json()
+    segments = body.get("segments", [])
+    vid = body.get("video_id", "")
+    remove = body.get("remove_fillers", False)
+
+    if not segments:
+        raise HTTPException(status_code=400, detail={
+            "success": False,
+            "error": "No segments provided.",
+        })
+
+    processor = _get_transcript_processor()
+    result = processor.process(
+        segments=segments,
+        video_id=vid,
+        remove_fillers=remove,
+    )
+    return json.loads(result.model_dump_json())
+
+
+# ---------------------------------------------------------------------------
+# Routes — API / Content Analysis (Phase 6)
+# ---------------------------------------------------------------------------
+
+
+_content_analysis_service = None
+
+
+def _get_content_analysis_service():
+    global _content_analysis_service
+    if _content_analysis_service is None:
+        from services.content_analysis_service import ContentAnalysisService
+        _content_analysis_service = ContentAnalysisService()
+    return _content_analysis_service
+
+
+@app.get("/api/analyze/{video_id}")
+async def api_analyze_transcript(
+    video_id: str,
+    force_refresh: bool = False,
+) -> dict:
+    """Analyze a video's transcript with the AI Content Analysis Engine.
+
+    Fetches the transcript (via Phase 4/5), processes it if needed,
+    then runs the full AI content analysis pipeline.
+
+    Path parameter:
+        video_id: 11-character YouTube video ID.
+
+    Query parameters:
+        force_refresh: Bypass analysis cache if true.
+
+    Returns:
+        ``ContentAnalysisResult``-compatible dict with full semantic intelligence.
+    """
+    import json
+    from fastapi import HTTPException
+
+    transcript_service = _get_transcript_service()
+    transcript = transcript_service.get_transcript(video_id)
+
+    if not transcript.success:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "success": False,
+                "error": transcript.error or "No transcript available for analysis.",
+            },
+        )
+
+    processor = _get_transcript_processor()
+    processed = processor.process(
+        segments=transcript.segments,
+        video_id=video_id,
+    )
+
+    if not processed.success:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "success": False,
+                "error": processed.error or "Failed to process transcript for analysis.",
+            },
+        )
+
+    meta_service = _metadata_service
+    metadata = meta_service.get_metadata(video_id) if video_id else None
+    video_stats = metadata.video.statistics.model_dump() if metadata and metadata.success and metadata.video else None
+    channel_info = metadata.video.channel.model_dump() if metadata and metadata.success and metadata.video else None
+    lang_info = processed.language.model_dump() if processed.language else None
+
+    service = _get_content_analysis_service()
+    result = service.analyze(
+        transcript=processed.clean_transcript,
+        video_id=video_id,
+        metadata=metadata.model_dump() if metadata else None,
+        video_statistics=video_stats,
+        channel_info=channel_info,
+        language_info=lang_info,
+        force_refresh=force_refresh,
+    )
+    return json.loads(result.model_dump_json())
+
+
+@app.post("/api/analyze")
+async def api_analyze_direct(request: Request) -> dict:
+    """Analyze a transcript passed directly in the request body.
+
+    JSON body::
+
+        {
+            "video_id": "dQw4w9WgXcQ",
+            "transcript": "... clean transcript text ...",
+            "metadata": {...},
+            "video_statistics": {...},
+            "channel_info": {...},
+            "language_info": {...},
+            "force_refresh": false,
+            "llm_provider": null,
+            "llm_model": null
+        }
+    """
+    import json
+    from fastapi import HTTPException
+    from schemas.analysis_response import AnalyzeTranscriptRequest
+
+    body = await request.json()
+    req = AnalyzeTranscriptRequest(**body)
+
+    service = _get_content_analysis_service()
+    result = service.analyze(
+        transcript=req.transcript,
+        video_id=req.video_id,
+        metadata=req.metadata,
+        video_statistics=req.video_statistics,
+        channel_info=req.channel_info,
+        language_info=req.language_info,
+        force_refresh=req.force_refresh,
+        llm_provider=req.llm_provider,
+        llm_model=req.llm_model,
+    )
+    return json.loads(result.model_dump_json())
 
 
 # ---------------------------------------------------------------------------

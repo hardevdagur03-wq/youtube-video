@@ -21,6 +21,7 @@ class Settings:
         self.base_dir: Path = BASE_DIR
         self.logs_dir: Path = BASE_DIR / "logs"
         self.output_dir: Path = BASE_DIR / "output"
+        self.openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
         
         # Ensure standard directories exist
         self.logs_dir.mkdir(parents=True, exist_ok=True)
