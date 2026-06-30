@@ -7,4 +7,12 @@ export default defineConfig({
   build: {
     outDir: 'dist',
   },
+  server: {
+    proxy: {
+      '/run': 'http://localhost:8000',
+      '/api': 'http://localhost:8000',
+      '/dashboard': 'http://localhost:8000',
+      '/static': 'http://localhost:8000',
+    },
+  },
 })

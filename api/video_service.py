@@ -1,21 +1,69 @@
 """Service for communicating with YouTube Data API for video/playlist operations."""
 
 import logging
+import socket
+import ssl
+import time
 from typing import Any
 
 from googleapiclient.errors import HttpError
 
-from api.youtube_client import YouTubeClient, YouTubeAPIClientError
+from api.youtube_client import YouTubeClient, YouTubeAPIClientError, YouTubeAPISslError
 from utils.retry import retry
 
 logger = logging.getLogger(__name__)
 
 RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
+_SSL_RETRYABLE = (ssl.SSLError, ssl.SSLZeroReturnError, ssl.SSLEOFError,
+                  ConnectionError, OSError, socket.timeout)
 
 
 class VideoServiceError(Exception):
     """Base exception for video service API errors."""
     pass
+
+
+def _execute_with_ssl_retry(request: Any, max_retries: int = 3) -> dict[str, Any]:
+    """Execute a googleapiclient request with SSL/connection retry.
+
+    googleapiclient's ``_retry_request`` already retries SSL errors internally,
+    but this adds an additional outer retry loop for resilience.
+
+    Args:
+        request: A googleapiclient ``HttpRequest`` object.
+        max_retries: Maximum number of outer retries.
+
+    Returns:
+        API response dict.
+
+    Raises:
+        HttpError: Non-retryable HTTP errors.
+        VideoServiceError: On SSL error exhaustion.
+    """
+    last_error: Exception | None = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            return request.execute()
+        except _SSL_RETRYABLE as exc:
+            last_error = exc
+            if attempt < max_retries:
+                delay = 2 ** attempt
+                logger.warning(
+                    "SSL/Connection error (outer retry %d/%d): %s. Retrying in %ds...",
+                    attempt, max_retries, exc, delay,
+                )
+                time.sleep(delay)
+            else:
+                logger.error(
+                    "SSL/Connection error exhausted after %d retries: %s",
+                    max_retries, exc,
+                )
+        except HttpError:
+            raise  # Let the caller handle HTTP errors
+    raise YouTubeAPISslError(
+        "Unable to connect securely to the YouTube API. "
+        "Please try again in a few moments."
+    ) from last_error
 
 
 class UploadsPlaylistNotFoundError(VideoServiceError):
@@ -64,17 +112,15 @@ class VideoService:
         logger.info("Fetching uploads playlist ID for channel %s", channel_id)
 
         try:
-            response: dict[str, Any] = (
-                service.channels()
-                .list(part="contentDetails", id=channel_id)
-                .execute()
+            response: dict[str, Any] = _execute_with_ssl_retry(
+                service.channels().list(part="contentDetails", id=channel_id),
             )
         except HttpError as exc:
             if _is_retryable(exc):
                 raise  # let @retry handle it
             _handle_http_error(exc, "get_uploads_playlist_id")
             raise
-        except YouTubeAPIClientError as exc:
+        except (YouTubeAPISslError, YouTubeAPIClientError) as exc:
             raise VideoServiceError(str(exc)) from exc
         except Exception as exc:
             logger.error("Unexpected error fetching playlist: %s", exc)
@@ -117,17 +163,15 @@ class VideoService:
             params["pageToken"] = page_token
 
         try:
-            response: dict[str, Any] = (
-                service.playlistItems()
-                .list(**params)
-                .execute()
+            response: dict[str, Any] = _execute_with_ssl_retry(
+                service.playlistItems().list(**params),
             )
         except HttpError as exc:
             if _is_retryable(exc):
                 raise
             _handle_http_error(exc, "get_playlist_items")
             raise
-        except YouTubeAPIClientError as exc:
+        except (YouTubeAPISslError, YouTubeAPIClientError) as exc:
             raise VideoServiceError(str(exc)) from exc
         except Exception as exc:
             logger.error("Unexpected error fetching playlist items: %s", exc)
@@ -172,20 +216,18 @@ class VideoService:
         )
 
         try:
-            response: dict[str, Any] = (
-                service.videos()
-                .list(
+            response: dict[str, Any] = _execute_with_ssl_retry(
+                service.videos().list(
                     part="snippet,contentDetails,statistics",
                     id=joined,
-                )
-                .execute()
+                ),
             )
         except HttpError as exc:
             if _is_retryable(exc):
                 raise
             _handle_http_error(exc, "get_videos_batch")
             raise
-        except YouTubeAPIClientError as exc:
+        except (YouTubeAPISslError, YouTubeAPIClientError) as exc:
             raise VideoServiceError(str(exc)) from exc
         except Exception as exc:
             logger.error("Unexpected error fetching video batch: %s", exc)

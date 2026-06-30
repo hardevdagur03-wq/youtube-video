@@ -423,5 +423,5 @@ class TestVideoServiceHttpErrors:
         mock_service.playlistItems.return_value.list.return_value.execute.side_effect = error
 
         svc = VideoService()
-        with pytest.raises(VideoServiceError, match="Playlist not found"):
+        with pytest.raises(VideoServiceError, match="Resource not found"):
             svc.get_playlist_items("UU_bad")

@@ -4,6 +4,8 @@ from .video_discovery import VideoDiscovery, VideoDiscoveryError
 from .video_metadata import VideoMetadataService, VideoMetadataError
 from .data_transformer import DataTransformer, DataTransformerError
 from .exporter import CSVExporter, CSVExporterError
+from .youtube_url_parser import YouTubeURLParser
+from .youtube_metadata_service import YouTubeMetadataService
 
 __all__ = [
     "ChannelResolver",
@@ -17,4 +19,6 @@ __all__ = [
     "DataTransformerError",
     "CSVExporter",
     "CSVExporterError",
+    "YouTubeURLParser",
+    "YouTubeMetadataService",
 ]
