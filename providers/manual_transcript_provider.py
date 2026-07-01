@@ -1,4 +1,9 @@
-"""Stage 1: Official YouTube human-created transcript provider."""
+"""Stage 1: Official YouTube human-created transcript provider.
+
+Uses the smart transcript selection engine from YouTubeTranscriptClient
+to enumerate ALL available transcripts, log each candidate with full
+metadata, and auto-select the best manual transcript using priority scoring.
+"""
 
 import logging
 
@@ -6,7 +11,6 @@ from models.transcript import (
     TranscriptResult,
     TranscriptSource,
     TranscriptProviderName,
-    PipelineStep,
 )
 from interfaces.transcript_provider import TranscriptProvider
 from clients.youtube_transcript_client import (
@@ -26,8 +30,9 @@ logger = logging.getLogger(__name__)
 class ManualTranscriptProvider(TranscriptProvider):
     """Stage 1 provider: retrieves official manually created YouTube transcripts.
 
-    This is the highest-priority source. Manually created captions
-    have the best accuracy, punctuation, and formatting.
+    Uses ``YouTubeTranscriptClient.find_best_transcript()`` with
+    ``transcript_type="manual"`` to enumerate ALL available transcripts,
+    log every candidate, and auto-select the best manually-created match.
     """
 
     def __init__(
@@ -46,11 +51,17 @@ class ManualTranscriptProvider(TranscriptProvider):
     def get_transcript(
         self, video_id: str, language: str | None = None
     ) -> TranscriptResult:
-        """Fetch official manually created transcript.
+        """Fetch the best manually created transcript for this video.
+
+        Delegates to ``YouTubeTranscriptClient.find_best_transcript()``
+        with ``transcript_type="manual"``, which:
+          1. Lists ALL available transcripts via a single API call
+          2. Logs each candidate with language, code, generated, translatable
+          3. Selects the best match using priority scoring (manual only)
 
         Args:
             video_id: 11-character YouTube video ID.
-            language: Optional language code.
+            language: Optional language code hint.
 
         Returns:
             ``TranscriptResult`` populated with manual transcript data.
@@ -67,12 +78,16 @@ class ManualTranscriptProvider(TranscriptProvider):
         )
 
         try:
-            languages = [language] if language else None
-            raw_segments = self._client.fetch_transcript(
-                video_id, languages=languages, prefer_manual=True
+            preferred = [language] if language else None
+            raw_segments, detected_lang, is_manual, translation_source = (
+                self._client.find_best_transcript(
+                    video_id,
+                    preferred_languages=preferred,
+                    transcript_type="manual",
+                )
             )
-        except (NoTranscriptFoundError, TranscriptsDisabledError, VideoUnavailableError,
-                TooManyRequestsError):
+        except (NoTranscriptFoundError, TranscriptsDisabledError,
+                VideoUnavailableError, TooManyRequestsError):
             raise
         except Exception as exc:
             logger.warning("Manual transcript fetch failed for %s: %s", video_id, exc)
@@ -80,6 +95,14 @@ class ManualTranscriptProvider(TranscriptProvider):
 
         if not raw_segments:
             raise NoTranscriptFoundError(f"No manual transcript segments for {video_id}")
+
+        final_language = detected_lang
+        if translation_source:
+            logger.info(
+                "Manual transcript for %s was translated from %s to en",
+                video_id, translation_source,
+            )
+            final_language = "en"
 
         segments = self._client.parse_segments(raw_segments)
         segments = self._text_cleaner.clean_segments(segments)
@@ -90,15 +113,15 @@ class ManualTranscriptProvider(TranscriptProvider):
         char_count = len(plain_text)
         duration = segments[-1].end if segments else 0
 
-        detected_lang = self._language_detector.detect(plain_text)
+        available_languages = self._get_available_languages(video_id)
 
         return TranscriptResult(
             success=True,
             video_id=video_id,
             source=TranscriptSource.MANUAL,
             provider=TranscriptProviderName.YOUTUBE_MANUAL,
-            language=detected_lang.language if detected_lang else (language or "en"),
-            language_confidence=detected_lang.confidence if detected_lang else None,
+            language=final_language,
+            language_confidence=None,
             segments=segments,
             plain_text=plain_text,
             paragraph_text=paragraph_text,
@@ -106,5 +129,23 @@ class ManualTranscriptProvider(TranscriptProvider):
             character_count=char_count,
             estimated_read_time=estimate_read_time(word_count),
             duration_seconds=duration,
+            available_languages=available_languages,
+            translation_source=translation_source,
             error=None,
         )
+
+    def _get_available_languages(self, video_id: str) -> list[dict]:
+        """Get serializable list of available transcript languages."""
+        try:
+            available = self._client.list_all_transcripts(video_id)
+            return [
+                {
+                    "language": t["language"],
+                    "language_code": t["language_code"],
+                    "is_generated": t["is_generated"],
+                    "is_translatable": t["is_translatable"],
+                }
+                for t in available
+            ]
+        except Exception:
+            return []

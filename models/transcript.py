@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Any
 from pydantic import BaseModel, Field
 
 
@@ -57,4 +58,12 @@ class TranscriptResult(BaseModel):
     duration_seconds: float | None = Field(default=None)
     whisper_info: WhisperProcessingInfo | None = Field(default=None)
     pipeline_steps: list[PipelineStep] = Field(default_factory=list)
+    available_languages: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="List of available transcript language metadata",
+    )
+    translation_source: str | None = Field(
+        default=None,
+        description="Original language code if this result was translated",
+    )
     error: str | None = Field(default=None)

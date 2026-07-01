@@ -111,6 +111,13 @@ export interface TranscriptSegment {
   text: string;
 }
 
+export interface AvailableLanguage {
+  language: string;
+  language_code: string;
+  is_generated: boolean;
+  is_translatable: boolean;
+}
+
 export interface WhisperProcessingInfo {
   model_name: string;
   transcription_duration_seconds: number | null;
@@ -127,6 +134,15 @@ export interface PipelineStep {
   status: PipelineStepStatus;
   detail: string;
   duration_seconds: number | null;
+}
+
+export interface AllTranscriptsResponse {
+  success: boolean;
+  video_id: string;
+  manual: TranscriptResult | null;
+  auto: TranscriptResult | null;
+  pipeline_steps: PipelineStep[];
+  available_languages: AvailableLanguage[];
 }
 
 export interface TranscriptResult {
@@ -146,7 +162,43 @@ export interface TranscriptResult {
   duration_seconds: number | null;
   whisper_info: WhisperProcessingInfo | null;
   pipeline_steps: PipelineStep[];
+  available_languages: AvailableLanguage[];
+  translation_source: string | null;
   error: string | null;
+}
+
+export const LANGUAGE_LABELS: Record<string, string> = {
+  en: 'English',
+  hi: 'Hindi',
+  es: 'Spanish',
+  fr: 'French',
+  de: 'German',
+  pt: 'Portuguese',
+  ja: 'Japanese',
+  ko: 'Korean',
+  zh: 'Chinese',
+  ru: 'Russian',
+  ar: 'Arabic',
+  it: 'Italian',
+  nl: 'Dutch',
+  tr: 'Turkish',
+  vi: 'Vietnamese',
+  th: 'Thai',
+};
+
+export function getLanguageLabel(code: string): string {
+  return LANGUAGE_LABELS[code] || code.toUpperCase();
+}
+
+export type TranscriptTabSource = 'manual' | 'auto' | 'translated';
+
+export interface TranscriptTab {
+  key: string;
+  label: string;
+  source: TranscriptTabSource;
+  available: boolean;
+  language: string;
+  languageCode: string;
 }
 
 // Workflow types
@@ -339,6 +391,8 @@ export interface WorkflowState {
   metadata: VideoMetadata | null;
   metadataResponse: VideoMetadataResponse | null;
   transcript: TranscriptResult | null;
+  translatedTranscripts: Record<string, TranscriptResult>;
+  selectedLanguage: string;
   processedTranscript: ProcessingResult | null;
   processingStatus: 'idle' | 'processing' | 'ok' | 'error';
   analysis: ContentAnalysisResult | null;

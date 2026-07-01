@@ -1,9 +1,12 @@
 """URL helper utilities for YouTube URL parsing and normalization."""
 
 import re
-from urllib.parse import parse_qs, urlparse, urlunparse
+import logging
+from urllib.parse import parse_qs, urlparse
 
 from exceptions import YouTubeURLError
+
+logger = logging.getLogger(__name__)
 
 YOUTUBE_DOMAINS = (
     "www.youtube.com",
@@ -11,6 +14,8 @@ YOUTUBE_DOMAINS = (
     "music.youtube.com",
     "youtube.com",
     "youtu.be",
+    "www.youtube-nocookie.com",
+    "youtube-nocookie.com",
 )
 
 UNSUPPORTED_PATHS = (
@@ -37,15 +42,12 @@ _VIDEO_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{11}$")
 
 
 def is_youtube_domain(domain: str) -> bool:
-    """Check if the domain is a recognized YouTube domain."""
-    return domain in YOUTUBE_DOMAINS
+    """Check if the domain is a recognized YouTube domain (case-insensitive)."""
+    return domain.lower() in YOUTUBE_DOMAINS
 
 
 def is_supported_path(path: str) -> bool:
-    """Check if the URL path is not an unsupported YouTube resource.
-
-    Detects channel pages, playlists, search, and other non-video pages.
-    """
+    """Check if the URL path is not an unsupported YouTube resource."""
     lower_path = path.lower()
     for unsupported in UNSUPPORTED_PATHS:
         if lower_path.startswith(unsupported):
@@ -54,7 +56,7 @@ def is_supported_path(path: str) -> bool:
 
 
 def extract_video_id_from_query(query: str) -> str | None:
-    """Extract the ``v`` parameter from a URL query string.
+    """Extract the ``v`` parameter from a URL query string (case-insensitive).
 
     Args:
         query: The query component of a URL (e.g. ``v=abc123&t=120``).
@@ -63,9 +65,10 @@ def extract_video_id_from_query(query: str) -> str | None:
         The video ID value, or ``None`` if not found.
     """
     params = parse_qs(query, keep_blank_values=True)
-    v_values = params.get("v")
-    if v_values and v_values[0]:
-        return v_values[0]
+    for key in ("v", "V"):
+        v_values = params.get(key)
+        if v_values and v_values[0]:
+            return v_values[0]
     return None
 
 
@@ -85,7 +88,11 @@ def validate_video_id(video_id: str) -> str:
         raise YouTubeURLError("Video ID is missing or empty.")
 
     if not _VIDEO_ID_PATTERN.match(video_id):
-        raise YouTubeURLError(f"Invalid video ID format: '{video_id}'.")
+        raise YouTubeURLError(
+            f"Invalid video ID format: '{video_id}'. "
+            "YouTube video IDs are exactly 11 characters "
+            "containing letters, numbers, hyphens, and underscores."
+        )
 
     return video_id
 
@@ -125,9 +132,10 @@ def clean_url_input(raw: str) -> str:
 
 
 def has_valid_scheme(url: str) -> bool:
-    """Check if the URL has a valid HTTP or HTTPS scheme.
+    """Check if the URL has a valid HTTP or HTTPS scheme using urlparse.
 
     Returns:
         ``True`` if the scheme is ``http`` or ``https``.
     """
-    return url.startswith(("http://", "https://"))
+    parsed = urlparse(url)
+    return parsed.scheme in ("http", "https")

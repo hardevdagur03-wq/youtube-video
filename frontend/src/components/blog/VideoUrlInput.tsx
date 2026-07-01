@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, type FormEvent, type ChangeEvent } from 'react';
 import { Youtube, CheckCircle2, XCircle, Loader2, ArrowRight, X, Clipboard } from 'lucide-react';
 
 interface ValidationResult {
@@ -31,19 +31,45 @@ export default function VideoUrlInput({ onValidUrl }: VideoUrlInputProps) {
     setLoading(true);
     try {
       const resp = await fetch(`/api/validate-url?url=${encodeURIComponent(input)}`);
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => null);
+        setValidation({
+          valid: false,
+          video_id: null,
+          normalized_url: null,
+          url_type: null,
+          original_url: input,
+          error: body?.error || `Server returned ${resp.status} ${resp.statusText}. Please try again.`,
+        });
+        return;
+      }
       const data: ValidationResult = await resp.json();
+      if (typeof data.valid !== 'boolean') {
+        setValidation({
+          valid: false,
+          video_id: null,
+          normalized_url: null,
+          url_type: null,
+          original_url: input,
+          error: 'Unexpected response from server. Please try again.',
+        });
+        return;
+      }
       setValidation(data);
       if (data.valid && data.video_id && data.normalized_url) {
         onValidUrl(data.video_id, data.normalized_url);
       }
-    } catch {
+    } catch (err) {
+      const message = err instanceof TypeError
+        ? 'Could not reach the server. Check your connection and try again.'
+        : `Validation request failed: ${err instanceof Error ? err.message : 'Unknown error'}.`;
       setValidation({
         valid: false,
         video_id: null,
         normalized_url: null,
         url_type: null,
         original_url: input,
-        error: 'Network error. Please try again.',
+        error: message,
       });
     } finally {
       setLoading(false);
@@ -73,9 +99,10 @@ export default function VideoUrlInput({ onValidUrl }: VideoUrlInputProps) {
     inputRef.current?.focus();
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (url.trim()) validateUrl(url);
+    const value = inputRef.current?.value ?? url;
+    if (value.trim()) validateUrl(value);
   };
 
   useEffect(() => {
@@ -185,7 +212,7 @@ export default function VideoUrlInput({ onValidUrl }: VideoUrlInputProps) {
             </span>
           )}
           {validation && !validation.valid && !loading && (
-            <span className="text-red-500 font-medium">Unsupported URL</span>
+            <span className="text-red-500 font-medium">{validation.error || 'Unsupported URL'}</span>
           )}
         </div>
 

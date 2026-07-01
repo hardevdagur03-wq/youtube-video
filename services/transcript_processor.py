@@ -154,8 +154,8 @@ class TranscriptProcessor:
             elif isinstance(s, dict):
                 try:
                     steps.append(ProcessingStep(**s))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("Failed to construct ProcessingStep: %s", exc)
 
         timestamps = [
             ProcessedTimestamp(

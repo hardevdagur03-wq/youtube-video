@@ -188,6 +188,16 @@ class TestProviderFactory:
         provider = create_provider(config)
         assert provider.provider_name == "openai"
 
+    def test_create_gemini_with_plain_key(self):
+        config = ProviderConfig(api_key="AIzaSyTestGeminiKey123", model="gemini-1.5-flash")
+        provider = create_provider(config)
+        assert provider.provider_name == "gemini"
+
+    def test_create_gemini_with_extra_hint(self):
+        config = ProviderConfig(api_key="any-key", extra={"provider": "gemini"})
+        provider = create_provider(config)
+        assert provider.provider_name == "gemini"
+
     def test_create_mock_without_key(self):
         config = ProviderConfig(api_key="", model="mock-v1")
         provider = create_provider(config)
@@ -195,6 +205,10 @@ class TestProviderFactory:
 
     def test_estimate_cost(self):
         cost = estimate_cost("gpt-4o-mini", 1000, 500)
+        assert cost > 0
+
+    def test_gemini_cost_estimate(self):
+        cost = estimate_cost("gemini-1.5-flash", 1000, 500)
         assert cost > 0
 
 
@@ -410,6 +424,24 @@ class TestContentAnalysisService:
             force_refresh=True,
         )
         assert result2.video_id == "video12345678"
+
+    def test_create_default_provider_with_gemini_key(self):
+        import os
+        from config.settings import settings
+        orig_env = os.environ.get("GEMINI_API_KEY")
+        orig_setting = settings.gemini_api_key
+        os.environ["GEMINI_API_KEY"] = "AIzaSyTestKey"
+        try:
+            settings.gemini_api_key = "AIzaSyTestKey"
+            from services.content_analysis_service import ContentAnalysisService
+            service = ContentAnalysisService()
+            assert service._provider.provider_name == "gemini"
+        finally:
+            if orig_env is not None:
+                os.environ["GEMINI_API_KEY"] = orig_env
+            else:
+                os.environ.pop("GEMINI_API_KEY", None)
+            settings.gemini_api_key = orig_setting
 
 
 # =========================================================================

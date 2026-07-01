@@ -1,0 +1,1 @@
+{"steps": [{"name": "Channel Resolution", "status": "running", "detail": ""}, {"name": "Error", "status": "error", "detail": "Invalid channel handle: 'https://youtube.com/@physicsgalaxyworld'. A handle must be 3\u201330 characters and may contain letters, digits, dots, hyphens, or underscores."}], "complete": true}

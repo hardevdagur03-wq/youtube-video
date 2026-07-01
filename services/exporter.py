@@ -172,10 +172,12 @@ class CSVExporter:
             raise CSVExporterError(f"Cannot write CSV to {filepath}: {exc}") from exc
 
         file_size = filepath.stat().st_size
+        total_input = exported + skipped
         logger.info("CSV exported: %d rows, %d bytes → %s", exported, file_size, filepath)
 
         return {
             "filepath": str(filepath.resolve()),
+            "total_input": total_input,
             "exported": exported,
             "skipped": skipped,
             "file_size_bytes": file_size,

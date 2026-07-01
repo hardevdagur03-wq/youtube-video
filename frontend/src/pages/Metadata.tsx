@@ -3,7 +3,7 @@ import MetadataHero from '../components/metadata/MetadataHero';
 import MetadataForm from '../components/metadata/MetadataForm';
 
 export default function Metadata() {
-  const { result, loading, progress, error, startExport, reset } = useExport();
+  const { result, loading, progress, error, startExport, reset, backendStatus } = useExport();
 
   return (
     <>
@@ -15,6 +15,7 @@ export default function Metadata() {
         result={result}
         error={error}
         reset={reset}
+        backendStatus={backendStatus}
       />
     </>
   );

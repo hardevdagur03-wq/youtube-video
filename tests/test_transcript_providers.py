@@ -13,10 +13,12 @@ from models.transcript import TranscriptSource, TranscriptProviderName, Transcri
 @pytest.fixture
 def mock_youtube_client():
     client = MagicMock()
-    client.fetch_transcript.return_value = [
+    raw_segments = [
         {"text": "Hello world.", "start": 0.0, "duration": 2.0},
         {"text": "This is a test.", "start": 2.0, "duration": 3.0},
     ]
+    client.find_best_transcript.return_value = (raw_segments, "en", True, None)
+    client.list_all_transcripts.return_value = []
     client.parse_segments.side_effect = lambda raw: [
         TranscriptSegment(
             start=float(s["start"]),
@@ -54,7 +56,7 @@ class TestManualTranscriptProvider:
         assert result.word_count == 6
 
     def test_manual_transcript_empty_segments(self, mock_youtube_client):
-        mock_youtube_client.fetch_transcript.return_value = []
+        mock_youtube_client.find_best_transcript.return_value = ([], "en", True, None)
         from providers.manual_transcript_provider import ManualTranscriptProvider
         from clients.youtube_transcript_client import NoTranscriptFoundError
 
@@ -63,7 +65,7 @@ class TestManualTranscriptProvider:
             provider.get_transcript("dQw4w9WgXcQ")
 
     def test_manual_transcript_fetch_failure(self, mock_youtube_client):
-        mock_youtube_client.fetch_transcript.side_effect = Exception("API failure")
+        mock_youtube_client.find_best_transcript.side_effect = Exception("API failure")
         from providers.manual_transcript_provider import ManualTranscriptProvider
         from clients.youtube_transcript_client import NoTranscriptFoundError
 
@@ -94,7 +96,7 @@ class TestAutoTranscriptProvider:
         assert result.word_count == 6
 
     def test_auto_transcript_empty(self, mock_youtube_client):
-        mock_youtube_client.fetch_transcript.return_value = []
+        mock_youtube_client.find_best_transcript.return_value = ([], "en", False, None)
         from providers.auto_transcript_provider import AutoTranscriptProvider
         from clients.youtube_transcript_client import NoTranscriptFoundError
 

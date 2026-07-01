@@ -5,7 +5,6 @@ that powers all downstream AI modules (blog, SEO, social, newsletter, etc.).
 """
 
 from __future__ import annotations
-import json
 import logging
 import time
 import uuid
@@ -23,12 +22,9 @@ from models.content_analysis import (
     ContentType,
     DifficultyLevel,
 )
-from models.processing_result import ProcessingResult as ProcessedTranscript
 from providers.llm_provider import LLMProvider, MockProvider, ProviderConfig, create_provider
 from utils.prompt_builder import build_analysis_prompt, get_system_prompt, get_prompt_version
-from utils.token_counter import estimate_input_tokens, estimate_output_tokens
 from utils.confidence import compute_confidence, compute_depth_score
-from utils.text_utils import count_words, count_sentences
 from repositories.analysis_repository import AnalysisRepository
 from exceptions.analysis_errors import AnalysisError, InvalidTranscriptError
 from exceptions.processing_errors import ValidationError
@@ -37,6 +33,7 @@ from config.settings import settings
 logger = logging.getLogger(__name__)
 
 _DEFAULT_LLM_MODEL = "gpt-4o-mini"
+_DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 _MAX_TRANSCRIPT_LENGTH = 80000
 
 
@@ -53,14 +50,26 @@ class ContentAnalysisService:
 
     @staticmethod
     def _create_default_provider() -> LLMProvider:
-        api_key = getattr(settings, "openai_api_key", "") or ""
-        return create_provider(
-            ProviderConfig(
-                api_key=api_key,
-                model=_DEFAULT_LLM_MODEL,
-                temperature=0.1,
+        gemini_key = getattr(settings, "gemini_api_key", "") or ""
+        openai_key = getattr(settings, "openai_api_key", "") or ""
+        if gemini_key:
+            return create_provider(
+                ProviderConfig(
+                    api_key=gemini_key,
+                    model=_DEFAULT_GEMINI_MODEL,
+                    temperature=0.1,
+                    extra={"provider": "gemini"},
+                )
             )
-        )
+        if openai_key:
+            return create_provider(
+                ProviderConfig(
+                    api_key=openai_key,
+                    model=_DEFAULT_LLM_MODEL,
+                    temperature=0.1,
+                )
+            )
+        return create_provider(ProviderConfig(temperature=0.1))
 
     def analyze(
         self,
@@ -193,23 +202,23 @@ class ContentAnalysisService:
         outline_sections = len(outline_data.get("sections", []))
 
         summary = AnalysisSummary(**{
-            k: (v if v is not None else "")
-            for k, v in summary_data.items()
+            k: v for k, v in summary_data.items()
+            if k in AnalysisSummary.model_fields and v is not None
         }) if summary_data else AnalysisSummary()
 
         keywords = KeywordSet(**{
-            k: (v if v is not None else [])
-            for k, v in keywords_data.items()
+            k: v for k, v in keywords_data.items()
+            if k in KeywordSet.model_fields and v is not None
         }) if keywords_data else KeywordSet()
 
         entities = EntitySet(**{
-            k: (v if v is not None else [])
-            for k, v in entities_data.items()
+            k: v for k, v in entities_data.items()
+            if k in EntitySet.model_fields and v is not None
         }) if entities_data else EntitySet()
 
         outline = ContentOutline(**{
-            k: (v if v is not None else [])
-            for k, v in outline_data.items()
+            k: v for k, v in outline_data.items()
+            if k in ContentOutline.model_fields and v is not None
         }) if outline_data else ContentOutline()
 
         q = quality_data or {}

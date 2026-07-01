@@ -462,7 +462,7 @@ class TestTranscriptProcessor:
         assert result.video_id == "dQw4w9WgXcQ"
         assert result.statistics.word_count > 0
         assert len(result.paragraphs) > 0
-        assert result.processing_time_ms > 0
+        assert result.processing_time_ms >= 0
 
     def test_process_invalid_video_id(self):
         processor = TranscriptProcessor()

@@ -53,8 +53,9 @@ _MODEL_COST_PER_1K = {
     "claude-3-opus": {"input": 0.015, "output": 0.075},
     "claude-3-sonnet": {"input": 0.003, "output": 0.015},
     "claude-3-haiku": {"input": 0.00025, "output": 0.00125},
-    "gemini-1.5-pro": {"input": 0.00125, "output": 0.005},
-    "gemini-1.5-flash": {"input": 0.000075, "output": 0.0003},
+    "gemini-2.5-pro": {"input": 0.00125, "output": 0.005},
+    "gemini-2.5-flash": {"input": 0.000075, "output": 0.0003},
+    "gemini-2.0-flash": {"input": 0.000075, "output": 0.0003},
     "llama-3.1-70b": {"input": 0.00059, "output": 0.00079},
     "llama-3.1-8b": {"input": 0.0001, "output": 0.0001},
     "mistral-large": {"input": 0.002, "output": 0.006},
@@ -322,6 +323,129 @@ class AnthropicProvider(LLMProvider):
         return LLMProviderError(str(exc))
 
 
+class GeminiProvider(LLMProvider):
+    """Google Gemini provider using google.genai (v2+ API)."""
+
+    def __init__(self, config: ProviderConfig | None = None) -> None:
+        super().__init__(config)
+        if not self.config.api_key:
+            raise LLMAuthenticationError("Gemini API key is required.")
+        if not self.config.model:
+            self.config.model = "gemini-2.5-flash"
+        self._client: Any = None
+
+    @property
+    def provider_name(self) -> str:
+        return "gemini"
+
+    @property
+    def model_name(self) -> str:
+        return self.config.model
+
+    def _get_client(self) -> Any:
+        if self._client is None:
+            try:
+                from google import genai as _genai
+                self._client = _genai.Client(api_key=self.config.api_key)
+            except ImportError:
+                raise LLMProviderError("google-genai not installed. Run: pip install google-genai")
+        return self._client
+
+    def generate(self, prompt: str, system_prompt: str | None = None) -> LLMResponse:
+        self._new_request_id()
+        start = time.time()
+        client = self._get_client()
+        contents = [system_prompt, prompt] if system_prompt else [prompt]
+
+        try:
+            resp = client.models.generate_content(
+                model=self.config.model,
+                contents=contents,
+                config={
+                    "temperature": self.config.temperature,
+                    "max_output_tokens": self.config.max_tokens,
+                },
+            )
+        except Exception as exc:
+            raise self._map_error(exc)
+
+        elapsed = (time.time() - start) * 1000
+        text = resp.text or ""
+
+        usage = None
+        if hasattr(resp, "usage_metadata") and resp.usage_metadata:
+            usage = resp.usage_metadata
+
+        return LLMResponse(
+            text=text,
+            model=self.config.model,
+            provider=self.provider_name,
+            input_tokens=usage.prompt_token_count if usage else 0,
+            output_tokens=usage.candidates_token_count if usage else 0,
+            total_tokens=(usage.prompt_token_count + usage.candidates_token_count) if usage else 0,
+            latency_ms=round(elapsed, 1),
+            cost_estimate=estimate_cost(self.config.model, usage.prompt_token_count if usage else 0, usage.candidates_token_count if usage else 0),
+        )
+
+    def generate_json(self, prompt: str, system_prompt: str | None = None) -> dict[str, Any]:
+        self._new_request_id()
+        start = time.time()
+        client = self._get_client()
+        contents = [system_prompt, prompt] if system_prompt else [prompt]
+
+        try:
+            resp = client.models.generate_content(
+                model=self.config.model,
+                contents=contents,
+                config={
+                    "temperature": self.config.temperature,
+                    "max_output_tokens": self.config.max_tokens,
+                    "response_mime_type": "application/json",
+                },
+            )
+        except Exception as exc:
+            raise self._map_error(exc)
+
+        elapsed = (time.time() - start) * 1000
+        text = resp.text or "{}"
+        text = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            data = {"raw": text}
+
+        usage = None
+        if hasattr(resp, "usage_metadata") and resp.usage_metadata:
+            usage = resp.usage_metadata
+
+        result = LLMResponse(
+            text=text,
+            model=self.config.model,
+            provider=self.provider_name,
+            input_tokens=usage.prompt_token_count if usage else 0,
+            output_tokens=usage.candidates_token_count if usage else 0,
+            total_tokens=(usage.prompt_token_count + usage.candidates_token_count) if usage else 0,
+            latency_ms=round(elapsed, 1),
+            cost_estimate=estimate_cost(self.config.model, usage.prompt_token_count if usage else 0, usage.candidates_token_count if usage else 0),
+        )
+        self._log_request(prompt, result)
+        return data
+
+    @staticmethod
+    def _map_error(exc: Exception) -> LLMProviderError:
+        msg = str(exc).lower()
+        if "api key" in msg or "permission" in msg or "not found" in msg:
+            return LLMAuthenticationError(str(exc))
+        if "rate" in msg or "quota" in msg or "429" in msg:
+            return LLMRateLimitError(str(exc))
+        if "maximum" in msg or "length" in msg or "too long" in msg:
+            return LLMContextLengthError(str(exc))
+        if "timeout" in msg or "deadline" in msg:
+            return LLMTimeoutError(str(exc))
+        return LLMProviderError(str(exc))
+
+
 class MockProvider(LLMProvider):
     """Deterministic mock provider for testing and fallback.
 
@@ -494,9 +618,15 @@ class MockProvider(LLMProvider):
 
 def create_provider(config: ProviderConfig) -> LLMProvider:
     """Factory: create the appropriate LLM provider based on config."""
-    if config.api_key and config.api_key.startswith("sk-"):
-        return OpenAIProvider(config)
-    if config.api_key and config.api_key.startswith("sk-ant-"):
+    api_key = config.api_key or ""
+
+    if config.extra.get("provider") == "gemini" or (
+        api_key and not api_key.startswith("sk-") and not api_key.startswith("sk-ant-")
+    ):
+        return GeminiProvider(config)
+    if api_key.startswith("sk-ant-"):
         return AnthropicProvider(config)
+    if api_key.startswith("sk-"):
+        return OpenAIProvider(config)
     logger.info("No valid LLM API key found — using MockProvider for analysis.")
     return MockProvider(config)

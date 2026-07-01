@@ -53,7 +53,7 @@ class TranscriptRepository:
             try:
                 return TranscriptResult(**cached)
             except Exception:
-                logger.warning("Failed to deserialize cached transcript for %s", video_id)
+                logger.exception("Failed to deserialize cached transcript for %s", video_id)
                 self._cache.delete(cache_key)
 
         # Check file persistence
@@ -66,7 +66,7 @@ class TranscriptRepository:
                     logger.debug("Transcript file cache HIT for %s", video_id)
                     return TranscriptResult(**data)
                 except Exception as exc:
-                    logger.warning("Failed to read persisted transcript for %s: %s", video_id, exc)
+                    logger.exception("Failed to read persisted transcript for %s: %s", video_id, exc)
 
         logger.debug("Transcript cache MISS for %s", video_id)
         return None
@@ -108,7 +108,52 @@ class TranscriptRepository:
                 if file_path.exists():
                     file_path.unlink()
             except Exception as exc:
-                logger.warning("Failed to delete persisted transcript for %s: %s", video_id, exc)
+                logger.exception("Failed to delete persisted transcript for %s: %s", video_id, exc)
+
+    def get_translation(self, video_id: str, language: str) -> TranscriptResult | None:
+        """Retrieve a cached translation by video ID and language code.
+
+        Args:
+            video_id: 11-character YouTube video ID.
+            language: Target language code (e.g. 'en', 'hi').
+
+        Returns:
+            ``TranscriptResult`` if found, else None.
+        """
+        cache_key = f"transcript:{video_id}:{language}"
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            logger.debug("Translation cache HIT for %s/%s", video_id, language)
+            try:
+                return TranscriptResult(**cached)
+            except Exception:
+                logger.exception("Failed to deserialize cached translation for %s/%s", video_id, language)
+                self._cache.delete(cache_key)
+        logger.debug("Translation cache MISS for %s/%s", video_id, language)
+        return None
+
+    def save_translation(self, transcript: TranscriptResult, language: str) -> None:
+        """Save a translated transcript result.
+
+        Args:
+            transcript: The translated transcript to cache.
+            language: The target language code.
+        """
+        cache_key = f"transcript:{transcript.video_id}:{language}"
+        data = transcript.model_dump()
+        self._cache.set(cache_key, data)
+
+        if self._persist_dir:
+            file_path = self._persist_dir / f"{transcript.video_id}_{language}.json"
+            try:
+                file_path.write_text(
+                    json.dumps(data, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                logger.debug("Translation persisted for %s/%s", transcript.video_id, language)
+            except Exception as exc:
+                logger.warning("Failed to persist translation for %s/%s: %s",
+                               transcript.video_id, language, exc)
 
     def clear(self) -> None:
         """Clear all cached transcripts."""

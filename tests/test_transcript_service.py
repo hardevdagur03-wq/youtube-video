@@ -206,6 +206,67 @@ class TestTranscriptService:
         result = service.get_transcript("dQw4w9WgXcQ")
         assert len(result.pipeline_steps) > 0
 
+    def test_manual_failure_is_skipped_not_error(self):
+        """Manual transcript failure should be 'skipped', not 'error'."""
+        from services.transcript_service import TranscriptService
+
+        service = TranscriptService(
+            manual_provider=MockManualProvider(succeed=False),
+            auto_provider=MockAutoProvider(succeed=True),
+            use_cache=False,
+        )
+
+        result = service.get_transcript("dQw4w9WgXcQ")
+        assert result.success is True
+        assert result.source == TranscriptSource.AUTO
+
+        manual_step = next(
+            (s for s in result.pipeline_steps if "Manual" in s.name),
+            None,
+        )
+        assert manual_step is not None, "Manual step should exist in pipeline"
+        assert manual_step.status == "skipped", (
+            f"Manual step should be 'skipped', got '{manual_step.status}'"
+        )
+        assert "error" not in manual_step.detail.lower()
+
+    def test_manual_failure_pipeline_does_not_show_error_status(self):
+        """When manual fails but auto succeeds, no pipeline step should be 'error'."""
+        from services.transcript_service import TranscriptService
+
+        service = TranscriptService(
+            manual_provider=MockManualProvider(succeed=False),
+            auto_provider=MockAutoProvider(succeed=True),
+            use_cache=False,
+        )
+
+        result = service.get_transcript("dQw4w9WgXcQ")
+        error_steps = [s for s in result.pipeline_steps if s.status == "error"]
+        assert len(error_steps) == 0, (
+            f"Pipeline should have no error steps when auto succeeds, "
+            f"got: {[(s.name, s.status) for s in result.pipeline_steps]}"
+        )
+
+    def test_all_stages_skipped_properly(self):
+        """All pipeline stages should be 'skipped' when transcripts are unavailable, then 'error'."""
+        from services.transcript_service import TranscriptService
+
+        service = TranscriptService(
+            manual_provider=MockManualProvider(succeed=False),
+            auto_provider=MockAutoProvider(succeed=False),
+            whisper_provider=None,
+            use_cache=False,
+        )
+
+        result = service.get_transcript("dQw4w9WgXcQ")
+        assert result.success is False
+
+        steps = result.pipeline_steps
+        skipped_steps = [s for s in steps if s.status == "skipped"]
+        error_steps = [s for s in steps if s.status == "error"]
+        assert len(skipped_steps) >= 1
+        assert len(error_steps) >= 1
+
     def test_cache_hit_returns_fast(self):
         """Cached results should be returned without calling providers."""
         from services.transcript_service import TranscriptService

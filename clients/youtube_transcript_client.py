@@ -5,6 +5,19 @@ Injects a custom requests.Session with:
   - SSL / 5xx retry with exponential backoff
   - Comprehensive request logging
   - Explicit timeouts
+
+Smart transcript selection strategy:
+  1. Enumerate ALL available transcripts via list_transcripts()
+  2. Log every candidate with full metadata
+  3. Select best transcript using priority scoring:
+     a. Manual English (exact code match)
+     b. Manual English variant (en-US, en-GB, en-IN)
+     c. Auto-generated English
+     d. Manual Hindi (hi)
+     e. Manual translatable to English
+     f. Auto translatable to English
+     g. Best available (any language, any type)
+  4. Cache the TranscriptList to avoid redundant API calls
 """
 
 import logging
@@ -59,23 +72,35 @@ class TranscriptSslError(YouTubeTranscriptClientError):
     """SSL/TLS handshake failure when fetching transcript."""
 
 
-# ---------------------------------------------------------------------------
-# Custom sessions factory
-# ---------------------------------------------------------------------------
+# -- Priority-ordered language codes to search --------------------------------
+PREFERRED_LANGUAGES = ["en", "en-US", "en-GB", "en-IN", "hi"]
+
+# -- Logging helper for transcript candidates ---------------------------------
+_TRANSCRIPT_LOG_FMT = (
+    "language=%(language)s, code=%(language_code)s, "
+    "generated=%(is_generated)s, translatable=%(is_translatable)s"
+)
+
+
+def _log_transcript_candidate(t, verdict: str, reason: str) -> None:
+    """Log a single transcript candidate with the acceptance/rejection verdict."""
+    logger.info(
+        "Transcript candidate [%s]: %s  --  %s",
+        verdict,
+        _TRANSCRIPT_LOG_FMT % {
+            "language": t.language,
+            "language_code": t.language_code,
+            "is_generated": t.is_generated,
+            "is_translatable": t.is_translatable,
+        },
+        reason,
+    )
+
 
 def _build_transcript_session() -> requests.Session:
-    """Build a requests.Session configured for youtube-transcript-api.
-
-    Features:
-        - Retry on SSL errors, timeouts, and 5xx statuses
-        - certifi CA bundle for SSL verification
-        - Connection pooling (10 connections, 30 max)
-        - Request/response logging
-        - Explicit connect (15s) and read (30s) timeouts
-    """
+    """Build a requests.Session configured for youtube-transcript-api."""
     session = requests.Session()
 
-    # Retry strategy
     retry_strategy = Retry(
         total=3,
         read=3,
@@ -94,10 +119,8 @@ def _build_transcript_session() -> requests.Session:
     session.mount("https://", adapter)
     session.mount("http://", adapter)
 
-    # SSL verification via certifi
     session.verify = certifi.where()
 
-    # Default headers
     session.headers.update({
         "Accept-Language": "en-US",
         "User-Agent": (
@@ -109,10 +132,6 @@ def _build_transcript_session() -> requests.Session:
 
     return session
 
-
-# ---------------------------------------------------------------------------
-# Logging wrapper for requests.Session
-# ---------------------------------------------------------------------------
 
 class LoggingSession(requests.Session):
     """A requests.Session that logs every request and response."""
@@ -184,15 +203,15 @@ class LoggingSession(requests.Session):
             raise
 
 
-# ---------------------------------------------------------------------------
-# YouTubeTranscriptClient
-# ---------------------------------------------------------------------------
-
 class YouTubeTranscriptClient:
     """Client for fetching YouTube video transcripts.
 
     Injects a custom requests.Session with retry, logging, and SSL
     configuration into the underlying youtube-transcript-api.
+
+    Uses smart transcript selection: lists ALL available transcripts,
+    logs every candidate, then picks the best match using a priority
+    scoring system.
     """
 
     def __init__(self) -> None:
@@ -205,11 +224,12 @@ class YouTubeTranscriptClient:
         self._session = session
         self._api = YouTubeTranscriptApi(http_client=session)
 
+    # ------------------------------------------------------------------
+    # Low-level: list & fetch
+    # ------------------------------------------------------------------
+
     def list_transcripts(self, video_id: str) -> Any:
         """List available transcripts for a video.
-
-        Args:
-            video_id: 11-character YouTube video ID.
 
         Returns:
             ``TranscriptList`` from youtube-transcript-api.
@@ -234,17 +254,285 @@ class YouTubeTranscriptClient:
                 raise TooManyRequestsError("Rate limited by YouTube.")
             raise YouTubeTranscriptClientError(f"Failed to list transcripts: {exc}")
 
+    # ------------------------------------------------------------------
+    # Smart transcript enumeration & selection
+    # ------------------------------------------------------------------
+
+    def list_all_transcripts(self, video_id: str) -> list[dict[str, Any]]:
+        """Enumerate ALL available transcripts and log them with full metadata.
+
+        Args:
+            video_id: 11-character YouTube video ID.
+
+        Returns:
+            List of dicts, each with keys:
+                language, language_code, is_generated, is_translatable
+        """
+        transcript_list = self.list_transcripts(video_id)
+        available = []
+        for t in transcript_list:
+            info = {
+                "language": t.language,
+                "language_code": t.language_code,
+                "is_generated": t.is_generated,
+                "is_translatable": t.is_translatable,
+                "_transcript": t,
+            }
+            available.append(info)
+            logger.info(
+                "Available transcript: language=%s, code=%s, "
+                "generated=%s, translatable=%s",
+                t.language, t.language_code, t.is_generated, t.is_translatable,
+            )
+        if not available:
+            logger.warning("No transcripts available for video %s", video_id)
+        return available
+
+    def find_best_transcript(
+        self,
+        video_id: str,
+        preferred_languages: list[str] | None = None,
+        transcript_type: str = "any",
+    ) -> tuple[list[dict[str, Any]], str, bool, str | None]:
+        """Find and fetch the best available transcript using smart prioritization.
+
+        Steps:
+          1. List ALL transcripts via ``list_transcripts()``
+          2. Log each candidate with language, code, generated, translatable
+          3. Score candidates and pick the best match
+          4. If the best match is translatable but not in a preferred language,
+             translate it to English
+          5. Return (segments, language_code, is_manual, translation_source)
+
+        Priority (highest to lowest) when ``transcript_type="any"``:
+          1. Manual English (exact "en" match)
+          2. Manual English variant (en-US, en-GB, en-IN)
+          3. Manual Hindi (hi)
+          4. Auto-generated English (any "en*" code)
+          5. Manual transcript translatable to English
+          6. Auto-generated transcript translatable to English
+          7. Best available transcript (any language, any type)
+          8. Translatable transcript (any language → en)
+
+        When ``transcript_type="manual"``, only priorities 1-3 and non-generated
+        translatable candidates are considered.
+
+        When ``transcript_type="auto"``, only auto-generated candidates are
+        considered (priorities 4, 6, and auto-only from 7-8).
+
+        Args:
+            video_id: 11-character YouTube video ID.
+            preferred_languages: Override default language priority list.
+            transcript_type: One of "any" (default), "manual", or "auto".
+
+        Returns:
+            Tuple of (segments, language_code, is_manual, translation_source).
+            ``translation_source`` is the original language code if translated,
+            or None if the transcript is in its original language.
+
+        Raises:
+            NoTranscriptFoundError: No transcript available through any strategy.
+        """
+        langs = preferred_languages or PREFERRED_LANGUAGES
+        transcript_list = self.list_transcripts(video_id)
+
+        candidates = list(transcript_list)
+        logger.info(
+            "Searching for best %s transcript among %d candidate(s) for "
+            "video %s with preferred languages %s",
+            transcript_type, len(candidates), video_id, langs,
+        )
+
+        if not candidates:
+            logger.error("Zero transcript candidates returned for video %s", video_id)
+            raise NoTranscriptFoundError(
+                f"No transcript found for video {video_id}. "
+                "The video may not have captions enabled."
+            )
+
+        for t in candidates:
+            _log_transcript_candidate(t, "candidate", "available for evaluation")
+
+        if transcript_type == "manual":
+            return self._find_best_manual(candidates, langs)
+        if transcript_type == "auto":
+            return self._find_best_auto(candidates, langs)
+        return self._find_best_any(candidates, langs)
+
+    def _find_best_manual(
+        self,
+        candidates: list[Any],
+        langs: list[str],
+    ) -> tuple[list[dict[str, Any]], str, bool, str | None]:
+        """Select best manually-created transcript only."""
+
+        # Priority M1: Manual English (exact)
+        for t in candidates:
+            if not t.is_generated and t.language_code == "en":
+                _log_transcript_candidate(t, "ACCEPTED",
+                                          "Priority M1: manual English")
+                return self._to_dicts(t.fetch()), "en", True, None
+
+        # Priority M2: Manual English variant
+        for lang in ["en-US", "en-GB", "en-IN"]:
+            for t in candidates:
+                if not t.is_generated and t.language_code == lang:
+                    _log_transcript_candidate(t, "ACCEPTED",
+                                              f"Priority M2: manual {lang}")
+                    return self._to_dicts(t.fetch()), lang, True, None
+
+        # Priority M3: Manual Hindi
+        for t in candidates:
+            if not t.is_generated and t.language_code == "hi":
+                _log_transcript_candidate(t, "ACCEPTED",
+                                          "Priority M3: manual Hindi")
+                return self._to_dicts(t.fetch()), "hi", True, None
+
+        # Priority M4: Manual translatable to English
+        for t in candidates:
+            if not t.is_generated and t.is_translatable:
+                _log_transcript_candidate(t, "ACCEPTED",
+                                          "Priority M4: manual translatable to en")
+                translated = t.translate("en")
+                return self._to_dicts(translated.fetch()), "en", True, t.language_code
+
+        # Priority M5: Any manual transcript (last resort)
+        for t in candidates:
+            if not t.is_generated:
+                _log_transcript_candidate(t, "ACCEPTED",
+                                          "Priority M5: any manual transcript")
+                return self._to_dicts(t.fetch()), t.language_code, True, None
+
+        names = ", ".join(f"{t.language}({t.language_code})" for t in candidates)
+        raise NoTranscriptFoundError(
+            f"No manually-created transcript found. Available: [{names}]"
+        )
+
+    def _find_best_auto(
+        self,
+        candidates: list[Any],
+        langs: list[str],
+    ) -> tuple[list[dict[str, Any]], str, bool, str | None]:
+        """Select best auto-generated transcript only."""
+
+        # Priority A1: Auto English
+        for t in candidates:
+            if t.is_generated and t.language_code.startswith("en"):
+                _log_transcript_candidate(t, "ACCEPTED",
+                                          "Priority A1: auto English")
+                return self._to_dicts(t.fetch()), t.language_code, False, None
+
+        # Priority A2: Auto translatable to English
+        for t in candidates:
+            if t.is_generated and t.is_translatable:
+                _log_transcript_candidate(t, "ACCEPTED",
+                                          "Priority A2: auto translatable to en")
+                translated = t.translate("en")
+                return self._to_dicts(translated.fetch()), "en", False, t.language_code
+
+        # Priority A3: Any auto transcript (last resort)
+        for t in candidates:
+            if t.is_generated:
+                _log_transcript_candidate(t, "ACCEPTED",
+                                          "Priority A3: any auto transcript")
+                return self._to_dicts(t.fetch()), t.language_code, False, None
+
+        names = ", ".join(f"{t.language}({t.language_code})" for t in candidates)
+        raise NoTranscriptFoundError(
+            f"No auto-generated transcript found. Available: [{names}]"
+        )
+
+    def _find_best_any(
+        self,
+        candidates: list[Any],
+        langs: list[str],
+    ) -> tuple[list[dict[str, Any]], str, bool, str | None]:
+        """Select best transcript of any type (manual preferred)."""
+
+        # Priority 1: Manual English (exact "en" match)
+        for t in candidates:
+            if not t.is_generated and t.language_code == "en":
+                _log_transcript_candidate(t, "ACCEPTED",
+                                          "Priority 1: manual English (exact match)")
+                return self._to_dicts(t.fetch()), "en", True, None
+
+        # Priority 2: Manual English variant
+        for lang in ["en-US", "en-GB", "en-IN"]:
+            for t in candidates:
+                if not t.is_generated and t.language_code == lang:
+                    _log_transcript_candidate(t, "ACCEPTED",
+                                              f"Priority 2: manual English variant ({lang})")
+                    return self._to_dicts(t.fetch()), lang, True, None
+
+        # Priority 3: Manual Hindi
+        for t in candidates:
+            if not t.is_generated and t.language_code == "hi":
+                _log_transcript_candidate(t, "ACCEPTED",
+                                          "Priority 3: manual Hindi")
+                return self._to_dicts(t.fetch()), "hi", True, None
+
+        # Priority 4: Auto-generated English
+        for t in candidates:
+            if t.is_generated and t.language_code.startswith("en"):
+                _log_transcript_candidate(t, "ACCEPTED",
+                                          "Priority 4: auto-generated English")
+                return self._to_dicts(t.fetch()), t.language_code, False, None
+
+        # Priority 5: Manual translatable to English
+        for t in candidates:
+            if not t.is_generated and t.is_translatable:
+                _log_transcript_candidate(t, "ACCEPTED",
+                                          "Priority 5: manual translatable to en")
+                translated = t.translate("en")
+                return self._to_dicts(translated.fetch()), "en", True, t.language_code
+
+        # Priority 6: Auto translatable to English
+        for t in candidates:
+            if t.is_generated and t.is_translatable:
+                _log_transcript_candidate(t, "ACCEPTED",
+                                          "Priority 6: auto translatable to en")
+                translated = t.translate("en")
+                return self._to_dicts(translated.fetch()), "en", False, t.language_code
+
+        # Priority 7: Best available (any language, any type)
+        for t in candidates:
+            _log_transcript_candidate(t, "ACCEPTED",
+                                      "Priority 7: best available (last resort)")
+            return self._to_dicts(t.fetch()), t.language_code, not t.is_generated, None
+
+        # Priority 8: Translatable (last resort)
+        for t in candidates:
+            if t.is_translatable:
+                _log_transcript_candidate(t, "ACCEPTED",
+                                          "Priority 8: translatable to en (last resort)")
+                translated = t.translate("en")
+                return self._to_dicts(translated.fetch()), "en", not t.is_generated, t.language_code
+
+        names = ", ".join(f"{t.language}({t.language_code})" for t in candidates)
+        logger.error("All transcript strategies exhausted. Candidates: [%s]", names)
+        raise NoTranscriptFoundError(
+            f"No compatible transcript found. Checked languages {langs}. "
+            f"Available: [{names}]"
+        )
+
+    # ------------------------------------------------------------------
+    # Legacy methods (kept for backward compatibility)
+    # ------------------------------------------------------------------
+
     def fetch_transcript(
         self,
         video_id: str,
         languages: list[str] | None = None,
         prefer_manual: bool = True,
     ) -> list[dict[str, Any]]:
-        """Fetch transcript segments for a video.
+        """Legacy: fetch transcript segments limited to specific languages.
+
+        Deprecated: prefer ``find_best_transcript()`` which checks all
+        available transcripts with full enumeration.
 
         Args:
             video_id: 11-character YouTube video ID.
-            languages: Optional list of language codes to try (default ["en"]).
+            languages: Optional list of language codes (default PREFERRED_LANGUAGES).
             prefer_manual: Prefer manually created captions.
 
         Returns:
@@ -252,10 +540,8 @@ class YouTubeTranscriptClient:
 
         Raises:
             NoTranscriptFoundError: No transcript found.
-            TranscriptSslError: SSL handshake failure.
-            YouTubeTranscriptClientError: Other failures.
         """
-        langs = languages or ["en"]
+        langs = languages or PREFERRED_LANGUAGES
         transcript_list = self.list_transcripts(video_id)
 
         if prefer_manual:
@@ -286,14 +572,9 @@ class YouTubeTranscriptClient:
     def fetch_transcript_all_languages(
         self, video_id: str, prefer_manual: bool = True
     ) -> tuple[list[dict[str, Any]], str, bool]:
-        """Fetch transcript in any available language, auto-detecting.
+        """Legacy: fetch transcript in any available language.
 
-        Args:
-            video_id: 11-character YouTube video ID.
-            prefer_manual: Prefer manually created captions.
-
-        Returns:
-            Tuple of (segments, language_code, is_manual).
+        Deprecated: prefer ``find_best_transcript()``.
         """
         transcript_list = self.list_transcripts(video_id)
 
@@ -313,6 +594,10 @@ class YouTubeTranscriptClient:
             raise NoTranscriptFoundError(
                 f"No transcript found for video {video_id}: {exc}"
             )
+
+    # ------------------------------------------------------------------
+    # Shared helpers
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _to_dicts(fetched_transcript: Any) -> list[dict[str, Any]]:

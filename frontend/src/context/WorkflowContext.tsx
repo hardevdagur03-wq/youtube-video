@@ -10,6 +10,8 @@ const initialState: WorkflowState = {
   metadata: null,
   metadataResponse: null,
   transcript: null,
+  translatedTranscripts: {},
+  selectedLanguage: 'en',
   processedTranscript: null,
   processingStatus: 'idle',
   analysis: null,
@@ -31,6 +33,8 @@ type Action =
   | { type: 'SET_VIDEO'; payload: { videoId: string; normalizedUrl: string } }
   | { type: 'SET_METADATA'; payload: VideoMetadataResponse }
   | { type: 'SET_TRANSCRIPT'; payload: TranscriptResult }
+  | { type: 'SET_TRANSLATED_TRANSCRIPT'; payload: { language: string; transcript: TranscriptResult } }
+  | { type: 'SET_SELECTED_LANGUAGE'; payload: string }
   | { type: 'SET_PROCESSED_TRANSCRIPT'; payload: { result: ProcessingResult; status: WorkflowState['processingStatus'] } }
   | { type: 'SET_PROCESSING_STATUS'; payload: WorkflowState['processingStatus'] }
   | { type: 'SET_ANALYSIS'; payload: { result: ContentAnalysisResult; status: WorkflowState['analysisStatus'] } }
@@ -65,8 +69,19 @@ function reducer(state: WorkflowState, action: Action): WorkflowState {
       return {
         ...state,
         transcript: action.payload,
+        selectedLanguage: action.payload.language === 'hi' ? 'en' : action.payload.language,
         stepStatus: { ...state.stepStatus, transcript: action.payload.success ? 'ok' : 'error' },
       };
+    case 'SET_TRANSLATED_TRANSCRIPT':
+      return {
+        ...state,
+        translatedTranscripts: {
+          ...state.translatedTranscripts,
+          [action.payload.language]: action.payload.transcript,
+        },
+      };
+    case 'SET_SELECTED_LANGUAGE':
+      return { ...state, selectedLanguage: action.payload };
     case 'SET_PROCESSED_TRANSCRIPT':
       return {
         ...state,

@@ -6,13 +6,32 @@ export default defineConfig({
   base: '/',
   build: {
     outDir: 'dist',
+    sourcemap: true,
   },
   server: {
+    port: 5173,
+    strictPort: false,
     proxy: {
-      '/run': 'http://localhost:8000',
-      '/api': 'http://localhost:8000',
-      '/dashboard': 'http://localhost:8000',
-      '/static': 'http://localhost:8000',
+      '/run': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        timeout: 30000,
+        proxyTimeout: 30000,
+      },
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        timeout: 30000,
+        proxyTimeout: 30000,
+      },
+      '/dashboard': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/static': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
     },
   },
 })

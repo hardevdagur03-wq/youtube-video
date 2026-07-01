@@ -1,12 +1,18 @@
 import { useState } from 'react';
-import { Copy, Check, Download, FileText } from 'lucide-react';
+import { Copy, Check, Download, FileText, Languages } from 'lucide-react';
 import type { TranscriptResult } from '../../types';
 
 interface TranscriptActionsProps {
   transcript: TranscriptResult;
+  allTranscripts?: Record<string, TranscriptResult>;
 }
 
-export default function TranscriptActions({ transcript }: TranscriptActionsProps) {
+function getLanguageLabel(code: string): string {
+  const labels: Record<string, string> = { en: 'English', hi: 'Hindi' };
+  return labels[code] || code.toUpperCase();
+}
+
+export default function TranscriptActions({ transcript, allTranscripts = {} }: TranscriptActionsProps) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -38,10 +44,24 @@ export default function TranscriptActions({ transcript }: TranscriptActionsProps
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${transcript.video_id}_transcript.${ext}`;
+    a.download = `${transcript.video_id}_transcript_${transcript.language}.${ext}`;
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  const handleDownloadLanguage = (lang: string, t: TranscriptResult) => {
+    const blob = new Blob([t.plain_text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${t.video_id}_transcript_${lang}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const otherTranscripts = Object.entries(allTranscripts).filter(
+    ([code]) => code !== transcript.language
+  );
 
   return (
     <div className="flex items-center gap-2">
@@ -70,7 +90,18 @@ export default function TranscriptActions({ transcript }: TranscriptActionsProps
             <path d="M2 3L4 5L6 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
-        <div className="absolute right-0 top-full mt-1 w-32 py-1.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all-200 z-10">
+        <div className="absolute right-0 top-full mt-1 w-44 py-1.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all-200 z-10">
+          {Object.entries(allTranscripts).map(([code, t]) => (
+            <button
+              key={code}
+              onClick={() => handleDownloadLanguage(code, t)}
+              className="flex items-center gap-2 w-full px-3.5 py-2 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
+            >
+              <Languages size={13} />
+              {getLanguageLabel(code)} Transcript (.txt)
+            </button>
+          ))}
+          <div className="border-t border-gray-100 dark:border-gray-700 my-1 mx-3" />
           <button
             onClick={() => handleDownload('txt')}
             className="flex items-center gap-2 w-full px-3.5 py-2 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"

@@ -23,6 +23,13 @@ export default function BlogHome() {
 
     try {
       const resp = await fetch(`/api/video-metadata/${videoId}`);
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => null);
+        const msg = body?.error || `Server returned ${resp.status} ${resp.statusText}.`;
+        setError(msg);
+        dispatch({ type: 'SET_STEP_STATUS', payload: { step: 'metadata', status: 'error' } });
+        return;
+      }
       const data: VideoMetadataResponse = await resp.json();
       dispatch({ type: 'SET_METADATA', payload: data });
       if (data.success) {
@@ -31,8 +38,11 @@ export default function BlogHome() {
         setError(data.error || 'Failed to load metadata.');
         dispatch({ type: 'SET_STEP_STATUS', payload: { step: 'metadata', status: 'error' } });
       }
-    } catch {
-      setError('Network error. Please try again.');
+    } catch (err) {
+      const msg = err instanceof TypeError
+        ? 'Could not reach the server. Check your connection.'
+        : `Metadata request failed: ${err instanceof Error ? err.message : 'Unknown error'}.`;
+      setError(msg);
       dispatch({ type: 'SET_STEP_STATUS', payload: { step: 'metadata', status: 'error' } });
     } finally {
       setLoading(false);

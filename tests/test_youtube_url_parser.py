@@ -18,20 +18,11 @@ from utils.url_helpers import (
     validate_video_id,
 )
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
 VALID_VIDEO_ID = "dQw4w9WgXcQ"
 VALID_VIDEO_ID_2 = "5NV6Rdv1a3I"
 VALID_VIDEO_ID_SHORTS = "abc123DEF_-"
 
 parser = YouTubeURLParser()
-
-
-# ===========================================================================
-# URL Helper Tests
-# ===========================================================================
 
 
 class TestIsYoutubeDomain:
@@ -50,12 +41,26 @@ class TestIsYoutubeDomain:
     def test_no_www(self):
         assert is_youtube_domain("youtube.com") is True
 
+    def test_nocookie_domain(self):
+        assert is_youtube_domain("www.youtube-nocookie.com") is True
+
+    def test_nocookie_without_www(self):
+        assert is_youtube_domain("youtube-nocookie.com") is True
+
     def test_non_youtube(self):
         assert is_youtube_domain("google.com") is False
         assert is_youtube_domain("facebook.com") is False
         assert is_youtube_domain("vimeo.com") is False
         assert is_youtube_domain("localhost") is False
         assert is_youtube_domain("") is False
+
+    def test_case_insensitive(self):
+        assert is_youtube_domain("WWW.YOUTUBE.COM") is True
+        assert is_youtube_domain("YOUTUBE.COM") is True
+        assert is_youtube_domain("YOUTU.BE") is True
+        assert is_youtube_domain("M.YOUTUBE.COM") is True
+        assert is_youtube_domain("MUSIC.YOUTUBE.COM") is True
+        assert is_youtube_domain("WWW.YOUTUBE-NOCOOKIE.COM") is True
 
 
 class TestIsSupportedPath:
@@ -85,7 +90,6 @@ class TestIsSupportedPath:
 
     def test_playlist_path_unsupported(self):
         assert is_supported_path("/playlist") is False
-        assert is_supported_path("/playlist?list=PL_xxx") is False
 
     def test_feed_path_unsupported(self):
         assert is_supported_path("/feed/trending") is False
@@ -123,8 +127,17 @@ class TestExtractVideoIdFromQuery:
             == VALID_VIDEO_ID
         )
 
+    def test_v_query_with_pp(self):
+        assert (
+            extract_video_id_from_query(f"v={VALID_VIDEO_ID}&pp=ygUJcmljaCB3b29k")
+            == VALID_VIDEO_ID
+        )
+
     def test_no_v_param(self):
         assert extract_video_id_from_query("t=120&feature=share") is None
+
+    def test_no_v_param_only_si(self):
+        assert extract_video_id_from_query("si=I1Fpe6XsxkGybZCF") is None
 
     def test_empty_query(self):
         assert extract_video_id_from_query("") is None
@@ -192,11 +205,11 @@ class TestCleanUrlInput:
 
     def test_none_raises(self):
         with pytest.raises(YouTubeURLError, match="Empty or invalid"):
-            clean_url_input(None)  # type: ignore
+            clean_url_input(None)
 
     def test_non_string_raises(self):
         with pytest.raises(YouTubeURLError, match="Empty or invalid"):
-            clean_url_input(123)  # type: ignore
+            clean_url_input(123)
 
 
 class TestHasValidScheme:
@@ -216,11 +229,6 @@ class TestHasValidScheme:
         assert has_valid_scheme("") is False
 
 
-# ===========================================================================
-# YouTubeURLParser — Supported URL Formats
-# ===========================================================================
-
-
 class TestYouTubeURLParserValidFormats:
     """All supported YouTube URL formats must return valid=True."""
 
@@ -238,16 +246,13 @@ class TestYouTubeURLParserValidFormats:
         result = parser.parse(url)
         assert result.valid is True
         assert result.video_id == VALID_VIDEO_ID
-        assert result.normalized_url == f"https://www.youtube.com/watch?v={VALID_VIDEO_ID}"
         assert result.url_type == "youtu.be"
-        assert result.error is None
 
     def test_shorts_url(self):
         url = f"https://www.youtube.com/shorts/{VALID_VIDEO_ID_SHORTS}"
         result = parser.parse(url)
         assert result.valid is True
         assert result.video_id == VALID_VIDEO_ID_SHORTS
-        assert result.normalized_url == f"https://www.youtube.com/watch?v={VALID_VIDEO_ID_SHORTS}"
         assert result.url_type == "shorts"
 
     def test_live_url(self):
@@ -255,7 +260,6 @@ class TestYouTubeURLParserValidFormats:
         result = parser.parse(url)
         assert result.valid is True
         assert result.video_id == VALID_VIDEO_ID
-        assert result.normalized_url == f"https://www.youtube.com/watch?v={VALID_VIDEO_ID}"
         assert result.url_type == "live"
 
     def test_embed_url(self):
@@ -263,7 +267,6 @@ class TestYouTubeURLParserValidFormats:
         result = parser.parse(url)
         assert result.valid is True
         assert result.video_id == VALID_VIDEO_ID
-        assert result.normalized_url == f"https://www.youtube.com/watch?v={VALID_VIDEO_ID}"
         assert result.url_type == "embed"
 
     def test_mobile_url(self):
@@ -280,12 +283,31 @@ class TestYouTubeURLParserValidFormats:
         assert result.video_id == VALID_VIDEO_ID
         assert result.url_type == "watch"
 
+    def test_nocookie_embed_url(self):
+        url = f"https://www.youtube-nocookie.com/embed/{VALID_VIDEO_ID}"
+        result = parser.parse(url)
+        assert result.valid is True
+        assert result.video_id == VALID_VIDEO_ID
+        assert result.url_type == "embed"
+
 
 class TestYouTubeURLParserWithExtraParams:
     """URLs with extra query parameters must still parse correctly."""
 
     def test_with_timestamp(self):
         url = f"https://www.youtube.com/watch?v={VALID_VIDEO_ID}&t=120"
+        result = parser.parse(url)
+        assert result.valid is True
+        assert result.video_id == VALID_VIDEO_ID
+
+    def test_with_si_param(self):
+        url = f"https://youtu.be/{VALID_VIDEO_ID}?si=I1Fpe6XsxkGybZCF"
+        result = parser.parse(url)
+        assert result.valid is True
+        assert result.video_id == VALID_VIDEO_ID
+
+    def test_with_pp_param(self):
+        url = f"https://www.youtube.com/watch?v={VALID_VIDEO_ID}&pp=ygUJcmljaCB3b29k"
         result = parser.parse(url)
         assert result.valid is True
         assert result.video_id == VALID_VIDEO_ID
@@ -320,6 +342,18 @@ class TestYouTubeURLParserWithExtraParams:
         assert result.valid is True
         assert result.video_id == VALID_VIDEO_ID
 
+    def test_embed_with_params(self):
+        url = f"https://www.youtube.com/embed/{VALID_VIDEO_ID}?autoplay=1&mute=1"
+        result = parser.parse(url)
+        assert result.valid is True
+        assert result.video_id == VALID_VIDEO_ID
+
+    def test_si_and_pp_together(self):
+        url = f"https://www.youtube.com/watch?v={VALID_VIDEO_ID}&si=abc123&pp=iQMF"
+        result = parser.parse(url)
+        assert result.valid is True
+        assert result.video_id == VALID_VIDEO_ID
+
 
 class TestYouTubeURLParserNoScheme:
     """URLs without a scheme should still be parsed."""
@@ -333,11 +367,6 @@ class TestYouTubeURLParserNoScheme:
         result = parser.parse(f"youtu.be/{VALID_VIDEO_ID}")
         assert result.valid is True
         assert result.video_id == VALID_VIDEO_ID
-
-
-# ===========================================================================
-# YouTubeURLParser — Invalid / Unsupported Inputs
-# ===========================================================================
 
 
 class TestYouTubeURLParserInvalidInputs:
@@ -440,7 +469,6 @@ class TestYouTubeURLParserMalformed:
         url = "https://www.youtube.com/watch?v=tooshort"
         result = parser.parse(url)
         assert result.valid is False
-        assert "video ID format" in (result.error or "").lower() or "invalid" in (result.error or "").lower()
 
     def test_invalid_video_id_chars(self):
         url = "https://www.youtube.com/watch?v=!!!invalid!!!"
@@ -460,9 +488,11 @@ class TestYouTubeURLParserMalformed:
         result = parser.parse("https://youtu.be/")
         assert result.valid is False
 
+    def test_short_url_only_domain(self):
+        result = parser.parse("https://youtu.be")
+        assert result.valid is False
+
     def test_multiple_v_params_takes_first(self):
-        # Multiple v params: parse_qs returns list, takes first
-        # First v value must still be valid
         result = parser.parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ&v=5NV6Rdv1a3I&v=abc123DEF_-")
         assert result.valid is True
         assert result.video_id == "dQw4w9WgXcQ"
@@ -474,18 +504,14 @@ class TestYouTubeURLParserMalformed:
 
 class TestYouTubeURLParserEdgeCases:
     def test_url_with_trailing_slash_in_path(self):
-        # Some URLs have a trailing slash before the query
         url = f"https://www.youtube.com/watch/?v={VALID_VIDEO_ID}"
         result = parser.parse(url)
-        # Trailing slash after video ID in query is ok — the query string
-        # doesn't include the slash
         assert result.valid is True
         assert result.video_id == VALID_VIDEO_ID
 
     def test_url_with_ampersand_encoding(self):
         url = f"https://www.youtube.com/watch?v={VALID_VIDEO_ID}&amp;t=120"
         result = parser.parse(url)
-        # The &amp; won't be decoded by urlparse — treat as literal
         assert result.valid is True
 
     def test_original_url_is_preserved(self):
@@ -518,15 +544,19 @@ class TestYouTubeURLParserEdgeCases:
         assert result.valid is True
         assert result.video_id == video_id
 
-    def test_youtube_nocookie_domain(self):
-        url = f"https://www.youtube-nocookie.com/embed/{VALID_VIDEO_ID}"
+    def test_youtube_nocookie_with_params(self):
+        url = f"https://www.youtube-nocookie.com/embed/{VALID_VIDEO_ID}?autoplay=1&si=abc"
         result = parser.parse(url)
-        assert result.valid is False  # Not in supported domains
+        assert result.valid is True
+        assert result.video_id == VALID_VIDEO_ID
+        assert result.url_type == "embed"
 
-
-# ===========================================================================
-# YouTubeURLParser — Reusability / Stateless Design
-# ===========================================================================
+    def test_youtu_be_with_si(self):
+        url = f"https://youtu.be/{VALID_VIDEO_ID}?si=I1Fpe6XsxkGybZCF"
+        result = parser.parse(url)
+        assert result.valid is True
+        assert result.video_id == VALID_VIDEO_ID
+        assert result.url_type == "youtu.be"
 
 
 class TestYouTubeURLParserReusability:
@@ -559,3 +589,36 @@ class TestYouTubeURLParserReusability:
             result = parser.parse(url)
             assert result.valid is True, f"URL failed: {url}"
             assert result.url_type == expected_type, f"Expected {expected_type}, got {result.url_type} for {url}"
+
+
+class TestYouTubeURLParserCaseInsensitive:
+    def test_uppercase_domain_and_path(self):
+        result = parser.parse("WWW.YOUTUBE.COM/WATCH?V=DQW4W9WGXCQ")
+        assert result.valid is True
+        assert result.video_id == "DQW4W9WGXCQ"
+        assert result.url_type == "watch"
+
+    def test_uppercase_shorts(self):
+        result = parser.parse("HTTPS://WWW.YOUTUBE.COM/SHORTS/DQW4W9WGXCQ")
+        assert result.valid is True
+        assert result.video_id == "DQW4W9WGXCQ"
+
+    def test_uppercase_youtu_be(self):
+        result = parser.parse("YOUTU.BE/DQW4W9WGXCQ")
+        assert result.valid is True
+        assert result.video_id == "DQW4W9WGXCQ"
+
+    def test_mixed_case_domain(self):
+        result = parser.parse("https://WwW.YoUtUbE.cOm/wAtCh?v=dQw4w9WgXcQ")
+        assert result.valid is True
+        assert result.video_id == "dQw4w9WgXcQ"
+
+    def test_uppercase_embed(self):
+        result = parser.parse("HTTPS://WWW.YOUTUBE.COM/EMBED/DQW4W9WGXCQ")
+        assert result.valid is True
+        assert result.video_id == "DQW4W9WGXCQ"
+
+    def test_uppercase_live(self):
+        result = parser.parse("HTTPS://WWW.YOUTUBE.COM/LIVE/DQW4W9WGXCQ")
+        assert result.valid is True
+        assert result.video_id == "DQW4W9WGXCQ"

@@ -10,6 +10,8 @@ import {
   XCircle,
   AlertCircle,
   ArrowLeft,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 import type { ProgressData, ResultData } from '../../types';
 
@@ -20,6 +22,7 @@ interface MetadataFormProps {
   result: ResultData | null;
   error: string | null;
   reset: () => void;
+  backendStatus?: 'unknown' | 'ok' | 'error';
 }
 
 export default function MetadataForm({
@@ -29,16 +32,43 @@ export default function MetadataForm({
   result,
   error,
   reset,
+  backendStatus = 'unknown',
 }: MetadataFormProps) {
   const [channel, setChannel] = useState('');
   const [limit, setLimit] = useState('0');
   const [touched, setTouched] = useState(false);
+  const [channelError, setChannelError] = useState<string | null>(null);
+
+  const validateChannel = (value: string): string | null => {
+    const trimmed = value.trim();
+    if (!trimmed) return 'Please enter a channel URL, handle, or ID.';
+    // Accept handles (@handle), channel IDs (UC...), or YouTube URLs
+    if (
+      trimmed.startsWith('@') ||
+      trimmed.startsWith('UC') ||
+      trimmed.startsWith('http://') ||
+      trimmed.startsWith('https://') ||
+      /^[a-zA-Z0-9._-]{3,30}$/.test(trimmed)
+    ) {
+      return null;
+    }
+    return 'Invalid format. Enter a handle (@channel), channel ID (UC...), or YouTube URL.';
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setTouched(true);
-    if (!channel.trim()) return;
+    const err = validateChannel(channel);
+    setChannelError(err);
+    if (err) return;
     onExport(channel.trim(), Math.max(0, parseInt(limit) || 0));
+  };
+
+  const handleChannelChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setChannel(e.target.value);
+    if (touched) {
+      setChannelError(validateChannel(e.target.value));
+    }
   };
 
   const isActive = loading || progress || result || error;
@@ -80,20 +110,18 @@ export default function MetadataForm({
                       <input
                         type="text"
                         value={channel}
-                        onChange={(e) => setChannel(e.target.value)}
+                        onChange={handleChannelChange}
                         placeholder="@physicsgalaxyworld or UCgBmfNILAlXmGv3CsJ8oFJA"
                         className={`w-full pl-10 pr-4 py-3 rounded-xl border-2 text-sm transition-all-200 outline-none bg-white dark:bg-gray-800 ${
-                          touched && !channel.trim()
+                          touched && channelError
                             ? 'border-red-300 dark:border-red-700 focus:border-red-400 focus:ring-4 focus:ring-red-100 dark:focus:ring-red-900/30'
                             : 'border-gray-200 dark:border-gray-700 focus:border-emerald-400 dark:focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100 dark:focus:ring-emerald-900/30'
                         }`}
                         autoFocus
                       />
                     </div>
-                    {touched && !channel.trim() && (
-                      <p className="text-xs text-red-500 mt-1.5">
-                        Please enter a channel URL, handle, or ID
-                      </p>
+                    {touched && channelError && (
+                      <p className="text-xs text-red-500 mt-1.5">{channelError}</p>
                     )}
                   </div>
 
@@ -114,12 +142,30 @@ export default function MetadataForm({
                     </div>
                   </div>
 
+                  <div className="flex items-center gap-2 mb-3 text-xs">
+                    {backendStatus === 'ok' ? (
+                      <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                        <Wifi size={12} />
+                        Backend connected
+                      </span>
+                    ) : backendStatus === 'error' ? (
+                      <span className="flex items-center gap-1 text-red-500">
+                        <WifiOff size={12} />
+                        Backend unreachable
+                      </span>
+                    ) : null}
+                  </div>
                   <button
                     type="submit"
-                    className="relative overflow-hidden w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 text-white font-semibold text-sm shadow-lg shadow-emerald-200 dark:shadow-emerald-900/30 hover:shadow-xl hover:shadow-emerald-200 dark:hover:shadow-emerald-900/40 hover:scale-[1.01] active:scale-[0.99] transition-all-200"
+                    disabled={loading}
+                    className="relative overflow-hidden w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 text-white font-semibold text-sm shadow-lg shadow-emerald-200 dark:shadow-emerald-900/30 hover:shadow-xl hover:shadow-emerald-200 dark:hover:shadow-emerald-900/40 hover:scale-[1.01] active:scale-[0.99] transition-all-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                   >
-                    <FileSpreadsheet size={16} />
-                    Export to CSV
+                    {loading ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <FileSpreadsheet size={16} />
+                    )}
+                    {loading ? 'Starting...' : 'Export to CSV'}
                   </button>
                 </form>
               </div>
@@ -261,9 +307,27 @@ export default function MetadataForm({
                   <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
                     Export failed
                   </h4>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
                     {result.error || 'An unexpected error occurred.'}
                   </p>
+                  {result.error?.includes('API key') || result.error?.includes('quota') || result.error?.includes('configured') ? (
+                    <div className="max-w-sm mx-auto mb-6 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">
+                      <p className="text-xs text-amber-700 dark:text-amber-400">
+                        {result.error?.includes('API key')
+                          ? 'Add a valid YOUTUBE_API_KEY to your .env file and restart the server.'
+                          : result.error?.includes('quota')
+                          ? 'Try again later, or upgrade your YouTube API quota in Google Cloud Console.'
+                          : 'Enable the YouTube Data API v3 in Google Cloud Console.'}
+                      </p>
+                    </div>
+                  ) : null}
+                  {result.error?.includes('connect') || result.error?.includes('server') || result.error?.includes('network') ? (
+                    <div className="max-w-sm mx-auto mb-6 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800">
+                      <p className="text-xs text-blue-700 dark:text-blue-400">
+                        Make sure the backend server is running (start_server.bat) and your internet connection is working.
+                      </p>
+                    </div>
+                  ) : null}
                   <button
                     onClick={reset}
                     className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border-2 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-semibold text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-all-200"

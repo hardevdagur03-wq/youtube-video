@@ -1,25 +1,52 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useWorkflow } from '../context/WorkflowContext';
-import { WorkflowHeader, WorkflowFooter, WorkflowCompletionCard, WorkflowSkeleton } from '../components/workflow';
+import {
+  WorkflowHeader,
+  WorkflowFooter,
+  WorkflowCompletionCard,
+  WorkflowSkeleton,
+} from '../components/workflow';
 import TranscriptPipeline from '../components/transcript/TranscriptPipeline';
 import ProcessingPipelineSteps from '../components/transcript/ProcessingPipelineSteps';
 import TranscriptViewer from '../components/transcript/TranscriptViewer';
 import TranscriptError from '../components/transcript/TranscriptError';
 import type { TranscriptResult, ProcessingResult } from '../types';
+import { transcriptService } from '../services/TranscriptService';
 
 export default function BlogTranscript() {
   const navigate = useNavigate();
   const { state, dispatch, goToStep } = useWorkflow();
-  const { videoId, stepStatus, transcript, processedTranscript, processingStatus, metadata } = state;
+  const {
+    videoId,
+    stepStatus,
+    processedTranscript,
+    processingStatus,
+    metadata,
+  } = state;
   const [loading, setLoading] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isTranslating, setIsTranslating] = useState(false);
+
+  // Separate transcript stores
+  const [transcript, setTranscript] = useState<TranscriptResult | null>(null);
+  const [manualTranscript, setManualTranscript] =
+    useState<TranscriptResult | null>(null);
+  const [autoTranscript, setAutoTranscript] =
+    useState<TranscriptResult | null>(null);
+  const [translatedTranscripts, setTranslatedTranscripts] = useState<
+    Record<string, TranscriptResult>
+  >({});
+  const [pipelineSteps, setPipelineSteps] = useState<any[]>([]);
+  const [availableLanguages, setAvailableLanguages] = useState<any[]>([]);
+  const [selectedLanguage, setSelectedLanguage] = useState<string>('en');
 
   const isTranscriptOk = stepStatus.transcript === 'ok';
   const isProcessingDone = processingStatus === 'ok';
-  const showProcessing = transcript?.success && !isProcessingDone && processingStatus !== 'error';
+  const showProcessing =
+    transcript?.success && !isProcessingDone && processingStatus !== 'error';
 
   useEffect(() => {
     if (!videoId) {
@@ -27,33 +54,132 @@ export default function BlogTranscript() {
       return;
     }
     if (stepStatus.transcript === 'pending') {
-      fetchTranscript();
+      fetchAllTranscripts();
     }
   }, [videoId]);
 
   useEffect(() => {
-    if (transcript?.success && processingStatus === 'idle' && !processedTranscript) {
+    if (
+      transcript?.success &&
+      processingStatus === 'idle' &&
+      !processedTranscript
+    ) {
       processTranscript();
     }
   }, [transcript]);
 
-  const fetchTranscript = async () => {
-    dispatch({ type: 'SET_STEP_STATUS', payload: { step: 'transcript', status: 'running' } });
+  const fetchAllTranscripts = async () => {
+    dispatch({
+      type: 'SET_STEP_STATUS',
+      payload: { step: 'transcript', status: 'running' },
+    });
     setLoading(true);
     setError(null);
 
     try {
-      const resp = await fetch(`/api/transcript/${videoId}`);
-      const data: TranscriptResult = await resp.json();
-      dispatch({ type: 'SET_TRANSCRIPT', payload: data });
+      const data = await transcriptService.fetchAllTranscripts(videoId!);
+      console.log(`[BlogTranscript] All transcripts response:`, data);
+
       if (!data.success) {
-        setError(data.error || 'Failed to load transcript.');
+        setError('Failed to load any transcript.');
+        setPipelineSteps(data.pipeline_steps || []);
+        dispatch({
+          type: 'SET_STEP_STATUS',
+          payload: { step: 'transcript', status: 'error' },
+        });
+        return;
       }
-    } catch {
-      setError('Network error loading transcript.');
-      dispatch({ type: 'SET_STEP_STATUS', payload: { step: 'transcript', status: 'error' } });
+
+      const firstAvailable = data.auto || data.manual;
+      setManualTranscript(data.manual || null);
+      setAutoTranscript(data.auto || null);
+      setTranscript(firstAvailable);
+      setPipelineSteps(data.pipeline_steps || []);
+      setAvailableLanguages(data.available_languages || []);
+
+      if (firstAvailable) {
+        setSelectedLanguage(firstAvailable.language);
+        dispatch({ type: 'SET_TRANSCRIPT', payload: firstAvailable });
+      }
+    } catch (err) {
+      const msg =
+        err instanceof TypeError
+          ? 'Could not reach the server. Check your connection.'
+          : `Transcript request failed: ${
+              err instanceof Error ? err.message : 'Unknown error'
+            }.`;
+      setError(msg);
+      dispatch({
+        type: 'SET_STEP_STATUS',
+        payload: { step: 'transcript', status: 'error' },
+      });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const translateTranscript = useCallback(
+    async (targetLang: string) => {
+      if (!videoId) return;
+      const source = autoTranscript || manualTranscript || transcript;
+      if (!source) return;
+
+      console.log(
+        `[BlogTranscript] translate: targetLang=${targetLang}, source.lang=${source.language}`,
+      );
+
+      if (targetLang === source.language) {
+        setSelectedLanguage(targetLang);
+        return;
+      }
+
+      if (translatedTranscripts[targetLang]) {
+        setSelectedLanguage(targetLang);
+        return;
+      }
+
+      const cached = transcriptService.getCachedTranslation(
+        videoId,
+        targetLang,
+      );
+      if (cached) {
+        setTranslatedTranscripts((prev) => ({
+          ...prev,
+          [targetLang]: cached,
+        }));
+        setSelectedLanguage(targetLang);
+        return;
+      }
+
+      setIsTranslating(true);
+      try {
+        const data = await transcriptService.translateTranscript(
+          videoId,
+          targetLang,
+        );
+        console.log(`[BlogTranscript] Translation API response:`, data);
+        if (data.success && data.language !== source.language) {
+          setTranslatedTranscripts((prev) => ({
+            ...prev,
+            [targetLang]: data,
+          }));
+        }
+        setSelectedLanguage(targetLang);
+      } catch (err) {
+        console.error(`[BlogTranscript] Translation failed:`, err);
+      } finally {
+        setIsTranslating(false);
+      }
+    },
+    [videoId, transcript, autoTranscript, manualTranscript, translatedTranscripts],
+  );
+
+  const handleLanguageChange = async (lang: string) => {
+    console.log(`[BlogTranscript] Language change: ${lang}`);
+    setSelectedLanguage(lang);
+    const source = autoTranscript || manualTranscript || transcript;
+    if (source && lang !== source.language && !translatedTranscripts[lang]) {
+      await translateTranscript(lang);
     }
   };
 
@@ -63,9 +189,19 @@ export default function BlogTranscript() {
     setProcessing(true);
 
     try {
-      const resp = await fetch(`/api/transcript/${videoId}/process?remove_fillers=false`, {
-        method: 'POST',
-      });
+      const resp = await fetch(
+        `/api/transcript/${videoId}/process?remove_fillers=false`,
+        { method: 'POST' },
+      );
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => null);
+        setError(
+          body?.error ||
+            `Server returned ${resp.status} ${resp.statusText}.`,
+        );
+        dispatch({ type: 'SET_PROCESSING_STATUS', payload: 'error' });
+        return;
+      }
       const data: ProcessingResult = await resp.json();
       dispatch({
         type: 'SET_PROCESSED_TRANSCRIPT',
@@ -74,8 +210,14 @@ export default function BlogTranscript() {
       if (!data.success) {
         setError(data.error || 'Failed to process transcript.');
       }
-    } catch {
-      setError('Network error processing transcript.');
+    } catch (err) {
+      setError(
+        err instanceof TypeError
+          ? 'Could not reach the server. Check your connection.'
+          : `Processing request failed: ${
+              err instanceof Error ? err.message : 'Unknown error'
+            }.`,
+      );
       dispatch({ type: 'SET_PROCESSING_STATUS', payload: 'error' });
     } finally {
       setProcessing(false);
@@ -93,7 +235,10 @@ export default function BlogTranscript() {
   };
 
   const handleRetry = () => {
-    if (videoId) fetchTranscript();
+    if (videoId) {
+      transcriptService.clearCache();
+      fetchAllTranscripts();
+    }
   };
 
   const handleReProcess = () => {
@@ -102,8 +247,22 @@ export default function BlogTranscript() {
 
   if (!videoId) return null;
 
-  const steps = processedTranscript?.processing_steps || transcript?.pipeline_steps;
-  const displayText = processedTranscript?.clean_transcript || transcript?.paragraph_text || transcript?.plain_text;
+  const steps =
+    processedTranscript?.processing_steps || pipelineSteps;
+  const displayText =
+    processedTranscript?.clean_transcript ||
+    transcript?.paragraph_text ||
+    transcript?.plain_text;
+
+  const buildViewerTranscript = (): TranscriptResult | null => {
+    return transcript
+      ? { ...transcript, pipeline_steps: pipelineSteps, available_languages: availableLanguages }
+      : null;
+  };
+
+  console.log(
+    `[BlogTranscript] RENDER: selectedLanguage=${selectedLanguage}, manual=${manualTranscript ? 'YES' : 'NULL'}, auto=${autoTranscript ? 'YES' : 'NULL'}, translated=${Object.keys(translatedTranscripts).join(',') || 'none'}`,
+  );
 
   return (
     <motion.div
@@ -113,7 +272,6 @@ export default function BlogTranscript() {
     >
       <WorkflowHeader currentStep={state.currentStep} />
 
-      {/* Video context */}
       {metadata && (
         <div className="mb-6 p-4 rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800">
           <div className="flex items-center gap-3">
@@ -122,24 +280,22 @@ export default function BlogTranscript() {
                 {metadata.title || 'Untitled'}
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                {metadata.channel.name} · {metadata.duration.readable || metadata.duration.compact}
+                {metadata.channel.name} ·{' '}
+                {metadata.duration.readable || metadata.duration.compact}
               </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Loading state */}
       {loading && !transcript && <WorkflowSkeleton />}
 
-      {/* Transcript pipeline progress (fetch + processing) */}
       {steps && steps.length > 0 && (
         <div className="mb-6">
           <TranscriptPipeline steps={steps as any} />
         </div>
       )}
 
-      {/* Processing pipeline progress */}
       {showProcessing && (
         <div className="mb-6">
           <ProcessingPipelineSteps
@@ -150,41 +306,71 @@ export default function BlogTranscript() {
         </div>
       )}
 
-      {/* Error */}
       {error && !loading && !processing && (
         <TranscriptError message={error} onRetry={handleRetry} />
       )}
 
-      {/* Processing complete */}
+      {isTranscriptOk && transcript && !showProcessing && (
+        <div className="mb-6">
+          <TranscriptViewer
+            transcript={buildViewerTranscript()!}
+            manualTranscript={manualTranscript}
+            autoTranscript={autoTranscript}
+            translatedTranscripts={translatedTranscripts}
+            selectedLanguage={selectedLanguage}
+            onLanguageChange={handleLanguageChange}
+            isTranslating={isTranslating}
+          />
+        </div>
+      )}
+
       {isProcessingDone && processedTranscript && (
         <>
-          {/* Stats card */}
           <div className="mb-6 grid grid-cols-2 md:grid-cols-4 gap-3">
-            <StatCard label="Words" value={processedTranscript.statistics.word_count.toLocaleString()} />
-            <StatCard label="Sentences" value={processedTranscript.statistics.sentence_count.toLocaleString()} />
-            <StatCard label="Read Time" value={processedTranscript.statistics.estimated_read_time} />
+            <StatCard
+              label="Words"
+              value={processedTranscript.statistics.word_count.toLocaleString()}
+            />
+            <StatCard
+              label="Sentences"
+              value={processedTranscript.statistics.sentence_count.toLocaleString()}
+            />
+            <StatCard
+              label="Read Time"
+              value={processedTranscript.statistics.estimated_read_time}
+            />
             <StatCard
               label="Language"
-              value={processedTranscript.language?.primary?.toUpperCase() || 'EN'}
-              sub={processedTranscript.language?.secondary ? `+ ${processedTranscript.language.secondary.toUpperCase()}` : undefined}
+              value={
+                selectedLanguage === 'en'
+                  ? 'EN'
+                  : selectedLanguage.toUpperCase()
+              }
+              sub={
+                selectedLanguage !== transcript?.language
+                  ? `translated from ${transcript?.language?.toUpperCase()}`
+                  : undefined
+              }
             />
           </div>
 
-          {/* Clean transcript preview */}
           <div className="mb-4">
             <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
               AI-Ready Transcript
             </h3>
             <div className="prose prose-sm dark:prose-invert max-w-none text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
               {displayText ? (
-                displayText.length > 2000 ? displayText.slice(0, 2000) + '...' : displayText
+                displayText.length > 2000
+                  ? displayText.slice(0, 2000) + '...'
+                  : displayText
               ) : (
-                <span className="italic text-gray-400">No text available</span>
+                <span className="italic text-gray-400">
+                  No text available
+                </span>
               )}
             </div>
           </div>
 
-          {/* Paragraphs */}
           {processedTranscript.paragraphs.length > 0 && (
             <div className="mb-6">
               <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
@@ -192,20 +378,23 @@ export default function BlogTranscript() {
               </h3>
               <div className="space-y-2">
                 {processedTranscript.paragraphs.slice(0, 5).map((p, i) => (
-                  <p key={i} className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed border-l-2 border-violet-300 dark:border-violet-700 pl-3">
+                  <p
+                    key={i}
+                    className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed border-l-2 border-violet-300 dark:border-violet-700 pl-3"
+                  >
                     {p.length > 200 ? p.slice(0, 200) + '...' : p}
                   </p>
                 ))}
                 {processedTranscript.paragraphs.length > 5 && (
                   <p className="text-xs text-gray-400 italic">
-                    + {processedTranscript.paragraphs.length - 5} more paragraphs
+                    + {processedTranscript.paragraphs.length - 5} more
+                    paragraphs
                   </p>
                 )}
               </div>
             </div>
           )}
 
-          {/* Completion card */}
           <div className="mt-8">
             <WorkflowCompletionCard
               title="Transcript Processed Successfully"
@@ -220,7 +409,6 @@ export default function BlogTranscript() {
         </>
       )}
 
-      {/* When transcript is retrieved but not yet processed */}
       {isTranscriptOk && !isProcessingDone && !processing && processingStatus === 'idle' && (
         <div className="mt-8">
           <WorkflowCompletionCard
@@ -246,12 +434,24 @@ export default function BlogTranscript() {
   );
 }
 
-function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function StatCard({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+}) {
   return (
     <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800">
       <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
       <p className="text-lg font-bold text-gray-900 dark:text-white">{value}</p>
-      {sub && <p className="text-[10px] text-violet-500 dark:text-violet-400">{sub}</p>}
+      {sub && (
+        <p className="text-[10px] text-violet-500 dark:text-violet-400">
+          {sub}
+        </p>
+      )}
     </div>
   );
 }

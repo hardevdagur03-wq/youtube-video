@@ -1,0 +1,145 @@
+INFO:     Will watch for changes in these directories: ['C:\\Users\\rishi\\OneDrive\\Desktop\\YT']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [14716] using WatchFiles
+INFO:     Started server process [20872]
+INFO:     Waiting for application startup.
+2026-06-30 16:38:17,376 [INFO] webapp Webapp started — cleaning stale runs
+2026-06-30 16:38:17,376 [INFO] webapp Removing stale run directory: 203a7c54f8c2 (age=339454s)
+2026-06-30 16:38:17,379 [WARNING] webapp Could not remove stale run 203a7c54f8c2: [WinError 5] Access is denied: 'C:\\Users\\rishi\\OneDrive\\Desktop\\YT\\webapp\\runs\\203a7c54f8c2'
+2026-06-30 16:38:17,379 [INFO] webapp Removing stale run directory: 3a68c3ddc88f (age=339454s)
+2026-06-30 16:38:17,381 [WARNING] webapp Could not remove stale run 3a68c3ddc88f: [WinError 5] Access is denied: 'C:\\Users\\rishi\\OneDrive\\Desktop\\YT\\webapp\\runs\\3a68c3ddc88f'
+2026-06-30 16:38:17,381 [INFO] webapp Removing stale run directory: a094689b1e47 (age=339454s)
+2026-06-30 16:38:17,381 [WARNING] webapp Could not remove stale run a094689b1e47: [WinError 5] Access is denied: 'C:\\Users\\rishi\\OneDrive\\Desktop\\YT\\webapp\\runs\\a094689b1e47'
+2026-06-30 16:38:17,383 [INFO] webapp Removing stale run directory: d376c73330c8 (age=339454s)
+2026-06-30 16:38:17,383 [WARNING] webapp Could not remove stale run d376c73330c8: [WinError 5] Access is denied: 'C:\\Users\\rishi\\OneDrive\\Desktop\\YT\\webapp\\runs\\d376c73330c8'
+2026-06-30 16:38:17,383 [INFO] webapp Removing stale run directory: e29c730233a3 (age=339454s)
+2026-06-30 16:38:17,385 [WARNING] webapp Could not remove stale run e29c730233a3: [WinError 5] Access is denied: 'C:\\Users\\rishi\\OneDrive\\Desktop\\YT\\webapp\\runs\\e29c730233a3'
+INFO:     Application startup complete.
+2026-06-30 16:38:27,036 [INFO] clients.youtube_transcript_client Searching for best manual transcript among 2 candidate(s) for video jNQXAC9IVRw with preferred languages ['en', 'en-US', 'en-GB', 'en-IN', 'hi']
+2026-06-30 16:38:27,036 [INFO] clients.youtube_transcript_client Transcript candidate [candidate]: language=English, code=en, generated=False, translatable=False  --  available for evaluation
+2026-06-30 16:38:27,036 [INFO] clients.youtube_transcript_client Transcript candidate [candidate]: language=German, code=de, generated=False, translatable=False  --  available for evaluation
+2026-06-30 16:38:27,036 [INFO] clients.youtube_transcript_client Transcript candidate [ACCEPTED]: language=English, code=en, generated=False, translatable=False  --  Priority M1: manual English
+2026-06-30 16:38:27,271 [INFO] services.transcript_processor [aa8345b8] TranscriptProcessor started: video_id=jNQXAC9IVRw
+2026-06-30 16:38:27,271 [INFO] pipeline.processing_pipeline [486fc987] Pipeline started: 6 segments
+2026-06-30 16:38:27,271 [INFO] pipeline.base_processor [1fe86eb6] Stage remove_invalid_chars started
+2026-06-30 16:38:27,271 [INFO] pipeline.base_processor [1fe86eb6] Stage remove_invalid_chars OK (0.0ms)
+2026-06-30 16:38:27,271 [INFO] pipeline.base_processor [c8e5c92e] Stage merge_captions started
+2026-06-30 16:38:27,271 [INFO] pipeline.base_processor [c8e5c92e] Stage merge_captions OK (0.0ms)
+2026-06-30 16:38:27,271 [INFO] pipeline.base_processor [d495aa9e] Stage fix_punctuation started
+2026-06-30 16:38:27,271 [INFO] pipeline.base_processor [d495aa9e] Stage fix_punctuation OK (0.0ms)
+2026-06-30 16:38:27,271 [INFO] pipeline.base_processor [05aa6c6e] Stage correct_capitalization started
+2026-06-30 16:38:27,271 [INFO] pipeline.base_processor [05aa6c6e] Stage correct_capitalization OK (0.0ms)
+2026-06-30 16:38:27,271 [INFO] pipeline.base_processor [d5b51e83] Stage detect_paragraphs started
+2026-06-30 16:38:27,271 [INFO] pipeline.base_processor [d5b51e83] Stage detect_paragraphs OK (0.0ms)
+2026-06-30 16:38:27,271 [INFO] pipeline.base_processor [6859cb17] Stage remove_invalid_chars started
+2026-06-30 16:38:27,278 [INFO] pipeline.base_processor [6859cb17] Stage remove_invalid_chars OK (7.2ms)
+2026-06-30 16:38:27,278 [INFO] pipeline.base_processor [217a2f76] Stage detect_language started
+2026-06-30 16:38:27,997 [INFO] pipeline.base_processor [217a2f76] Stage detect_language OK (719.4ms)
+2026-06-30 16:38:27,997 [INFO] pipeline.base_processor [9b4939db] Stage calculate_metrics started
+2026-06-30 16:38:27,997 [INFO] pipeline.base_processor [9b4939db] Stage calculate_metrics OK (0.0ms)
+2026-06-30 16:38:27,997 [INFO] pipeline.processing_pipeline [486fc987] Pipeline complete: 38 words, 13 steps
+2026-06-30 16:38:27,997 [INFO] services.transcript_processor [aa8345b8] Processing complete: 38 words, 726.6ms
+2026-06-30 16:38:27,997 [INFO] services.youtube_metadata_service Fetching metadata for video jNQXAC9IVRw
+2026-06-30 16:38:27,997 [INFO] api.youtube_client Initializing YouTube Data API client (attempt 1/3)...
+2026-06-30 16:38:28,003 [INFO] api.youtube_client YouTube Data API client ready.
+2026-06-30 16:38:28,003 [INFO] api.video_service Fetching metadata batch: 1 videos (ids: jNQXAC9IVRw..)
+2026-06-30 16:38:28,832 [INFO] api.video_service Batch response: 1 items of 1 requested
+2026-06-30 16:38:28,850 [INFO] services.content_analysis_service [21a44c67] Content analysis started: video_id=jNQXAC9IVRw
+2026-06-30 16:38:32,688 [INFO] google_genai.models AFC is enabled with max remote calls: 10.
+2026-06-30 16:38:34,494 [INFO] httpx HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent "HTTP/1.1 503 Service Unavailable"
+2026-06-30 16:38:34,505 [ERROR] services.content_analysis_service [21a44c67] Analysis failed: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+2026-06-30 16:38:34,505 [ERROR] webapp [4fa4f3f1] Unhandled exception on GET /api/blog/jNQXAC9IVRw: AttributeError: 'ChannelInfo' object has no attribute 'title'
+Traceback (most recent call last):
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\fastapi\routing.py", line 2531, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\fastapi\routing.py", line 1241, in handle
+    await super().handle(scope, receive, send)
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\starlette\routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\fastapi\routing.py", line 150, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\fastapi\routing.py", line 136, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\fastapi\routing.py", line 690, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\fastapi\routing.py", line 344, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\rishi\OneDrive\Desktop\YT\webapp\main.py", line 766, in api_generate_blog
+    "channel": getattr(v, "channel", None).title if getattr(v, "channel", None) else "",
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\pydantic\main.py", line 1042, in __getattr__
+    raise AttributeError(f'{type(self).__name__!r} object has no attribute {item!r}')
+AttributeError: 'ChannelInfo' object has no attribute 'title'
+INFO:     127.0.0.1:51427 - "GET /api/blog/jNQXAC9IVRw?force_refresh=true HTTP/1.1" 500 Internal Server Error
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\uvicorn\protocols\http\httptools_impl.py", line 421, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 62, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\fastapi\applications.py", line 1163, in __call__
+    await super().__call__(scope, receive, send)
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\starlette\applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\starlette\middleware\errors.py", line 186, in __call__
+    raise exc
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\fastapi\routing.py", line 2531, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\fastapi\routing.py", line 1241, in handle
+    await super().handle(scope, receive, send)
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\starlette\routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\fastapi\routing.py", line 150, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\fastapi\routing.py", line 136, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\fastapi\routing.py", line 690, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\fastapi\routing.py", line 344, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\rishi\OneDrive\Desktop\YT\webapp\main.py", line 766, in api_generate_blog
+    "channel": getattr(v, "channel", None).title if getattr(v, "channel", None) else "",
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\rishi\OneDrive\Desktop\YT\venv\Lib\site-packages\pydantic\main.py", line 1042, in __getattr__
+    raise AttributeError(f'{type(self).__name__!r} object has no attribute {item!r}')
+AttributeError: 'ChannelInfo' object has no attribute 'title'
